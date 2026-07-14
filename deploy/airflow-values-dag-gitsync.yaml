@@ -1,4 +1,3 @@
-@"
 dags:
   persistence:
     enabled: false
@@ -13,9 +12,8 @@ dags:
     depth: 1
     period: 30s
 
-extraEnv:
+env:
   - name: AIRFLOW__CORE__DAGS_FOLDER
     value: /opt/airflow/dags/repo/dags
   - name: PYTHONPATH
     value: /opt/airflow/dags/repo/src
-"@ | Set-Content airflow-values-dag-gitsync.yaml
