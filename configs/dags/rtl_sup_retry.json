@@ -1,0 +1,237 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 40
+    },
+    "dag_id": "RTL_SUP_RETRY",
+    "dag_name": "Suppliers vendor SFTP retry storm",
+    "business_domain": "Suppliers",
+    "lrj_category": "Retry Storm",
+    "schedule": "0 3 * * *",
+    "sla": "2h",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "Vendor SFTP (EDI 850/856)",
+    "destination": "Snowflake RAW.SUPPLIER"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 477
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 478
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "get_active_endpoints",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "call_external_api"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the list of Suppliers endpoints/accounts/vendors to map over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 479
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "call_external_api",
+      "task_type": "PythonOperator.expand (dynamic task mapping, exponential backoff retries)",
+      "upstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "api_calls_fanout",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per endpoint; retry policy is error-code-aware"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 480
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "aggregate_results",
+      "task_type": "PythonOperator (fan-in)",
+      "upstream_tasks": [
+        "call_external_api"
+      ],
+      "downstream_tasks": [
+        "error_rate_check"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Aggregates success/failure/retry counts across mapped instances"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 481
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "error_rate_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "normal",
+        "retry_storm_detected"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Evaluates aggregate retry/error rate against a storm threshold"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 482
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "normal",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry rate within normal bounds"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 483
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "retry_storm_detected",
+      "task_type": "PythonOperator (circuit breaker trip)",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "notify_teams_critical"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry storm detected, trips circuit breaker for downstream calls"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 484
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "notify_teams_critical",
+      "task_type": "PythonOperator (Teams Adaptive Card, P1)",
+      "upstream_tasks": [
+        "retry_storm_detected"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Pages on-call, attaches AutoRCA retry-storm analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 485
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "normal"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Suppliers target with successfully retrieved records"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 486
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target",
+        "notify_teams_critical"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both branches"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 487
+      },
+      "dag_id": "RTL_SUP_RETRY",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 40
+    },
+    "incident_id": "INC-037",
+    "dag_id": "RTL_SUP_RETRY",
+    "incident_name": "Suppliers vendor SFTP retry storm",
+    "category": "Retry Storm",
+    "severity": "Sev-1 (Critical)",
+    "description": "Retry Storm incident on the Suppliers pipeline (RTL_SUP_RETRY): suppliers vendor SFTP retry storm.",
+    "symptoms": "SFTP file-pull tasks across 200 dynamically mapped vendor connections generated a combined 1,400 retries.",
+    "root_cause": "A shared jump-host used for all vendor SFTP connections hit its max-concurrent-session limit (50) once dynamic task mapping concurrency exceeded that, causing connection-refused errors that each mapped task independently retried without global coordination.",
+    "business_impact": "Vendor ASN ingestion delayed 4+ hours; the jump host's connection saturation also degraded an unrelated finance SFTP integration sharing the same infrastructure.",
+    "resolution": "Cap Airflow's max_active_tis_per_dagrun for the mapped task to stay under the jump-host's session limit; add a shared connection-pool-aware throttle."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 40
+    },
+    "incident_id": "INC-037",
+    "expected_rca_summary": "AI AutoRCA should identify: A shared jump-host used for all vendor SFTP connections hit its max-concurrent-session limit (50) once dynamic task mapping concurrency exceeded that, causing connection-refused errors that each mapped task independently retried without global coordination.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow shows retries clustered simultaneously across many mapped task instances rather than spread over time",
+    "datadog_metrics": "Datadog jumphost.active_sessions metric hit its ceiling (50) exactly when retries began climbing",
+    "confidence_score": 0.86,
+    "resolution": "Cap Airflow's max_active_tis_per_dagrun for the mapped task to stay under the jump-host's session limit; add a shared connection-pool-aware throttle.",
+    "preventive_action": "Add infrastructure-shared-resource constraints (e.g., max concurrent sessions on shared jump hosts) as a first-class metadata field the DAG factory respects when setting concurrency limits."
+  }
+}

@@ -1,0 +1,683 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at_utc": "2026-07-14T12:06:25.038639Z",
+  "source_workbook": "C:\\Users\\mpallavi\\Downloads\\AI_AutoRCA_Platform_Architecture.xlsx",
+  "dag_count": 56,
+  "task_count": 686,
+  "incident_count": 56,
+  "expected_rca_count": 56,
+  "metadata_fields": [
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 4
+      },
+      "section": "DAG Identity",
+      "field_name": "dag_id",
+      "data_type": "string",
+      "required": true,
+      "description": "Unique DAG identifier, generated as RTL_{domain_code}_{lrj_category_code}",
+      "example_value": "RTL_PRD_ELRJ"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 5
+      },
+      "section": "DAG Identity",
+      "field_name": "dag_name",
+      "data_type": "string",
+      "required": true,
+      "description": "Human-readable DAG name shown in the Airflow UI",
+      "example_value": "Product Master Full Catalog Sync SLA Monitor"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 6
+      },
+      "section": "DAG Identity",
+      "field_name": "business_domain",
+      "data_type": "enum(15)",
+      "required": true,
+      "description": "One of the 15 retail business domains",
+      "example_value": "Product Master"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 7
+      },
+      "section": "DAG Identity",
+      "field_name": "lrj_category",
+      "data_type": "enum(8)",
+      "required": true,
+      "description": "One of the 8 Long-Running-Job categories driving the architecture template selection",
+      "example_value": "Expected Long Running Job"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 8
+      },
+      "section": "DAG Identity",
+      "field_name": "owner_team",
+      "data_type": "string",
+      "required": true,
+      "description": "Team accountable for the DAG, used for Teams/on-call routing",
+      "example_value": "Data Platform - Retail Domain"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 9
+      },
+      "section": "DAG Identity",
+      "field_name": "tags",
+      "data_type": "list[string]",
+      "required": false,
+      "description": "Airflow UI tags for filtering/search",
+      "example_value": "['lululemon','elrj','product']"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 10
+      },
+      "section": "Scheduling",
+      "field_name": "schedule_cron",
+      "data_type": "cron string",
+      "required": true,
+      "description": "Base cron schedule",
+      "example_value": "0 2 * * *"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 11
+      },
+      "section": "Scheduling",
+      "field_name": "sla",
+      "data_type": "duration",
+      "required": true,
+      "description": "Baseline SLA duration used for sla_miss_callback",
+      "example_value": "4h"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 12
+      },
+      "section": "Scheduling",
+      "field_name": "dow_sla_overrides",
+      "data_type": "map[day->duration]",
+      "required": false,
+      "description": "Per-day-of-week SLA overrides for known weekly seasonality",
+      "example_value": "{'Mon':'6h'}"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 13
+      },
+      "section": "Scheduling",
+      "field_name": "seasonal_sla_calendar",
+      "data_type": "list[{date_range,duration}]",
+      "required": false,
+      "description": "Named peak-period SLA overrides (e.g., holiday, month-end)",
+      "example_value": "[{'name':'Peak Nov-Jan','sla':'6h'}]"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 14
+      },
+      "section": "Scheduling",
+      "field_name": "is_expected_long_running",
+      "data_type": "boolean",
+      "required": true,
+      "description": "Suppresses false-positive SLA-miss alerts for documented long-running baselines",
+      "example_value": "true"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 15
+      },
+      "section": "Scheduling",
+      "field_name": "max_acceptable_upstream_delay",
+      "data_type": "duration",
+      "required": false,
+      "description": "Used by Cascading Delay category to score cascade risk on cross-DAG dependencies",
+      "example_value": "2h"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 16
+      },
+      "section": "Architecture",
+      "field_name": "lrj_category_code",
+      "data_type": "enum(8)",
+      "required": true,
+      "description": "Selects which of the 8 architecture templates the factory instantiates",
+      "example_value": "ELRJ"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 17
+      },
+      "section": "Architecture",
+      "field_name": "architecture_template_version",
+      "data_type": "string",
+      "required": true,
+      "description": "Version pin of the template used, for reproducibility/audit",
+      "example_value": "v1.3"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 18
+      },
+      "section": "Architecture",
+      "field_name": "concurrency_pattern",
+      "data_type": "enum",
+      "required": true,
+      "description": "One of: linear, fan_out_fan_in, branch_conditional, sensor_gated, cross_dag_chain, dynamic_mapped_retry, dynamic_mapped_pool, resource_bounded",
+      "example_value": "fan_out_fan_in"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 19
+      },
+      "section": "Architecture",
+      "field_name": "dynamic_task_mapping",
+      "data_type": "boolean",
+      "required": false,
+      "description": "Whether the DAG uses .expand() dynamic task mapping",
+      "example_value": "true"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 20
+      },
+      "section": "Architecture",
+      "field_name": "mapped_task_cardinality_estimate",
+      "data_type": "integer",
+      "required": false,
+      "description": "Expected number of mapped instances, used for scheduler/pool capacity planning",
+      "example_value": "450"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 21
+      },
+      "section": "Architecture",
+      "field_name": "mapped_task_batching_threshold",
+      "data_type": "integer",
+      "required": false,
+      "description": "Cardinality above which the factory auto-batches mapped tasks to protect scheduler performance",
+      "example_value": "100"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 22
+      },
+      "section": "Architecture",
+      "field_name": "cross_dag_dependencies",
+      "data_type": "list[dag_id]",
+      "required": false,
+      "description": "Upstream DAG IDs this DAG depends on via ExternalTaskSensor/Datasets",
+      "example_value": "['RTL_STS_LRJF']"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 23
+      },
+      "section": "Architecture",
+      "field_name": "partial_consumption_capable",
+      "data_type": "boolean",
+      "required": false,
+      "description": "Whether downstream can consume upstream partitions incrementally (Datasets) vs. hard blocking wait",
+      "example_value": "false"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 24
+      },
+      "section": "Architecture",
+      "field_name": "fallback_degraded_mode",
+      "data_type": "string",
+      "required": false,
+      "description": "Documented behavior when an upstream/sensor dependency is not satisfied within a grace window",
+      "example_value": "use_prior_day_snapshot"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 25
+      },
+      "section": "Resourcing",
+      "field_name": "target_airflow_pool",
+      "data_type": "string",
+      "required": true,
+      "description": "Dedicated or shared Airflow pool assignment; default pool requires an explicit exception",
+      "example_value": "product_master_pool"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 26
+      },
+      "section": "Resourcing",
+      "field_name": "max_active_tis_per_dag",
+      "data_type": "integer",
+      "required": false,
+      "description": "Caps concurrent mapped task instances for this DAG",
+      "example_value": "50"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 27
+      },
+      "section": "Resourcing",
+      "field_name": "cpu_request",
+      "data_type": "string",
+      "required": false,
+      "description": "Kubernetes CPU request for pod-based execution",
+      "example_value": "2000m"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 28
+      },
+      "section": "Resourcing",
+      "field_name": "memory_request",
+      "data_type": "string",
+      "required": false,
+      "description": "Kubernetes memory request",
+      "example_value": "4Gi"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 29
+      },
+      "section": "Resourcing",
+      "field_name": "memory_budget_estimate_gb",
+      "data_type": "float",
+      "required": false,
+      "description": "Estimated peak memory from historical row-count/byte ratios, used to gate unchunked designs",
+      "example_value": "19.2"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 30
+      },
+      "section": "Resourcing",
+      "field_name": "node_affinity_group",
+      "data_type": "string",
+      "required": false,
+      "description": "Groups CPU/memory-heavy DAGs to avoid harmful co-location on shared nodes",
+      "example_value": "cpu_heavy_batch"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 31
+      },
+      "section": "Resourcing",
+      "field_name": "shared_resource_dependencies",
+      "data_type": "list[string]",
+      "required": false,
+      "description": "Shared infra (Redis, jump host, GPU pool) this DAG competes for, with blast-radius notes",
+      "example_value": "['redis-personalization: isolated namespace required']"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 32
+      },
+      "section": "Resourcing",
+      "field_name": "seasonal_scaling_calendar",
+      "data_type": "list[{name,date_range,scale_factor}]",
+      "required": false,
+      "description": "Pre-approved capacity scale-ups for known peak periods",
+      "example_value": "[{'name':'Holiday Returns','scale':'6x'}]"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 33
+      },
+      "section": "Retry & Resilience",
+      "field_name": "retry_policy",
+      "data_type": "enum",
+      "required": false,
+      "description": "transient_exponential_backoff, auth_fail_fast, none",
+      "example_value": "transient_exponential_backoff"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 34
+      },
+      "section": "Retry & Resilience",
+      "field_name": "max_retries",
+      "data_type": "integer",
+      "required": false,
+      "description": "Per-task-instance retry ceiling",
+      "example_value": "5"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 35
+      },
+      "section": "Retry & Resilience",
+      "field_name": "retry_error_classification",
+      "data_type": "map[http_code->action]",
+      "required": false,
+      "description": "Distinguishes genuine transient errors from misclassified/auth errors",
+      "example_value": "{'401':'fail_fast','429':'inspect_body','5xx':'retry_backoff'}"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 36
+      },
+      "section": "Retry & Resilience",
+      "field_name": "global_retry_budget",
+      "data_type": "integer",
+      "required": false,
+      "description": "Caps total system-wide retries across all mapped instances to prevent amplification storms",
+      "example_value": "500"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 37
+      },
+      "section": "Retry & Resilience",
+      "field_name": "circuit_breaker_threshold",
+      "data_type": "float",
+      "required": false,
+      "description": "Error-rate threshold that trips a circuit breaker for a downstream dependency",
+      "example_value": "0.25"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 38
+      },
+      "section": "Retry & Resilience",
+      "field_name": "sensor_timeout",
+      "data_type": "duration",
+      "required": false,
+      "description": "Mandatory bounded timeout for every sensor/deferrable operator (no unbounded poke)",
+      "example_value": "4h"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 39
+      },
+      "section": "Retry & Resilience",
+      "field_name": "sensor_mode",
+      "data_type": "enum",
+      "required": false,
+      "description": "poke or reschedule",
+      "example_value": "reschedule"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 40
+      },
+      "section": "Data Sources",
+      "field_name": "source_system",
+      "data_type": "string",
+      "required": true,
+      "description": "Name of the upstream system of record",
+      "example_value": "SAP ERP (Material Master)"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 41
+      },
+      "section": "Data Sources",
+      "field_name": "source_type",
+      "data_type": "enum",
+      "required": true,
+      "description": "API, SFTP, DB, Kafka, ERP, CRM, Vendor Feed",
+      "example_value": "API"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 42
+      },
+      "section": "Data Sources",
+      "field_name": "destination_system",
+      "data_type": "string",
+      "required": true,
+      "description": "Target storage/table",
+      "example_value": "Snowflake RAW.PRODUCT"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 43
+      },
+      "section": "Data Sources",
+      "field_name": "schema_evolution_mode",
+      "data_type": "enum",
+      "required": false,
+      "description": "strict, merge_schema, review_gate",
+      "example_value": "review_gate"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 44
+      },
+      "section": "Monitoring & AI AutoRCA",
+      "field_name": "datadog_monitors",
+      "data_type": "list[string]",
+      "required": true,
+      "description": "Datadog monitor names attached to this DAG's tasks",
+      "example_value": "['duration_vs_sla_ratio','pool_open_slots']"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 45
+      },
+      "section": "Monitoring & AI AutoRCA",
+      "field_name": "on_failure_callback",
+      "data_type": "string",
+      "required": true,
+      "description": "Python callable that invokes the AI AutoRCA multi-agent pipeline",
+      "example_value": "ai_autorca.trigger_rca"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 46
+      },
+      "section": "Monitoring & AI AutoRCA",
+      "field_name": "sla_miss_callback",
+      "data_type": "string",
+      "required": false,
+      "description": "Python callable fired on SLA miss, feeds AutoRCA context",
+      "example_value": "ai_autorca.sla_context"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 47
+      },
+      "section": "Monitoring & AI AutoRCA",
+      "field_name": "rca_evidence_sources",
+      "data_type": "list[enum]",
+      "required": true,
+      "description": "airflow_logs, datadog_metrics, postgres_pg_stat_activity, kubernetes_events, snowflake_query_history",
+      "example_value": "['airflow_logs','datadog_metrics']"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 48
+      },
+      "section": "Monitoring & AI AutoRCA",
+      "field_name": "confidence_threshold_auto_remediate",
+      "data_type": "float",
+      "required": false,
+      "description": "Confidence score above which AutoRCA may trigger an approved auto-remediation (else recommend only)",
+      "example_value": "0.9"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 49
+      },
+      "section": "Notifications",
+      "field_name": "teams_webhook_channel",
+      "data_type": "string",
+      "required": true,
+      "description": "Target Microsoft Teams channel for Adaptive Card notifications",
+      "example_value": "#retail-etl-oncall"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 50
+      },
+      "section": "Notifications",
+      "field_name": "email_distribution_list",
+      "data_type": "string",
+      "required": false,
+      "description": "Fallback/escalation email list",
+      "example_value": "data-platform-oncall@company.com"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 51
+      },
+      "section": "Notifications",
+      "field_name": "notify_on",
+      "data_type": "list[enum]",
+      "required": true,
+      "description": "success, failure, sla_near_miss, sla_miss, cascade_detected, retry_storm_detected",
+      "example_value": "['failure','sla_miss']"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 52
+      },
+      "section": "Governance",
+      "field_name": "priority",
+      "data_type": "enum(P1-P3)",
+      "required": true,
+      "description": "Business priority tier",
+      "example_value": "P1"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 53
+      },
+      "section": "Governance",
+      "field_name": "criticality",
+      "data_type": "enum",
+      "required": true,
+      "description": "Critical, High, Medium, Low",
+      "example_value": "Critical"
+    },
+    {
+      "source_row": {
+        "sheet": "Metadata Model",
+        "row_number": 54
+      },
+      "section": "Governance",
+      "field_name": "change_calendar_ref",
+      "data_type": "string",
+      "required": false,
+      "description": "Links credential rotation / vendor change events to this DAG's connection registry",
+      "example_value": "CHG-2026-0417"
+    }
+  ],
+  "workbook_schema": {
+    "sheets": {
+      "DAG Inventory": [
+        "DAG ID",
+        "DAG Name",
+        "Business Domain",
+        "LRJ Category",
+        "Schedule",
+        "SLA",
+        "Priority",
+        "Criticality",
+        "Source",
+        "Destination"
+      ],
+      "DAG Structure": [
+        "DAG ID",
+        "Task Name",
+        "Task Type",
+        "Upstream Tasks",
+        "Downstream Tasks",
+        "Parallel Group",
+        "Trigger Rule",
+        "Dependencies"
+      ],
+      "Incident Catalogue": [
+        "Incident ID",
+        "DAG ID",
+        "Incident Name",
+        "Category",
+        "Severity",
+        "Description",
+        "Symptoms",
+        "Root Cause",
+        "Business Impact",
+        "Resolution"
+      ],
+      "Expected AI RCA": [
+        "Incident ID",
+        "Expected RCA Summary",
+        "Evidence Required",
+        "Airflow Logs",
+        "Datadog Metrics",
+        "Confidence Score",
+        "Resolution",
+        "Preventive Action"
+      ],
+      "Metadata Model": [
+        "Section",
+        "Field Name",
+        "Data Type",
+        "Required",
+        "Description",
+        "Example Value"
+      ]
+    }
+  },
+  "notes": [
+    "Compiled from Excel at build time; Airflow DAG parsing must use JSON only.",
+    "Dependency ranges such as extract_p1..p4 are expanded only when all tasks exist."
+  ]
+}

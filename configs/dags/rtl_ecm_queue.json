@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 48
+    },
+    "dag_id": "RTL_ECM_QUEUE",
+    "dag_name": "Warehouse pick-wave generation Kubernetes pod queue congestion",
+    "business_domain": "Ecommerce",
+    "lrj_category": "Queue Congestion",
+    "schedule": "0 5,13,21 * * *",
+    "sla": "1h",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "Shopify Plus API",
+    "destination": "Snowflake RAW.ECOMMERCE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 561
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 562
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "get_mapping_keys",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "process_unit"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the Ecommerce entity list (stores/zones/segments/vendors) to fan out over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 563
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "process_unit",
+      "task_type": "PythonOperator.expand (dynamic task mapping, dedicated pool)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "fanout_pool",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per entity, bound to a dedicated Airflow pool"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 564
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "pool_saturation_monitor",
+      "task_type": "PythonOperator (Datadog pool.open_slots check)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Runs in parallel with process_unit, watches shared pool capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 565
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "aggregate_results",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "process_unit",
+        "pool_saturation_monitor"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of all mapped instances plus the monitor"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 566
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Ecommerce target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 567
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "datadog_queue_depth_check",
+      "task_type": "PythonOperator (AutoRCA congestion hook)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether queue congestion impacted this or sibling DAGs"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 568
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Run summary notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 569
+      },
+      "dag_id": "RTL_ECM_QUEUE",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 48
+    },
+    "incident_id": "INC-045",
+    "dag_id": "RTL_ECM_QUEUE",
+    "incident_name": "Warehouse pick-wave generation Kubernetes pod queue congestion",
+    "category": "Queue Congestion",
+    "severity": "Sev-2 (High)",
+    "description": "Queue Congestion incident on the Ecommerce pipeline (RTL_ECM_QUEUE): warehouse pick-wave generation Kubernetes pod queue congestion.",
+    "symptoms": "Dynamically mapped pick-wave generation tasks (one per zone, 35 zones) queued for pod scheduling for over an hour.",
+    "root_cause": "The Kubernetes namespace's resource quota (CPU requests) was sized for the DAG's original 10-zone design and never updated after zone count grew to 35, so the scheduler could only start 10 pods concurrently, queuing the rest.",
+    "business_impact": "Pick-wave release to the warehouse floor delayed by over an hour during peak shift, directly reducing units-picked-per-hour for that shift.",
+    "resolution": "Increase the namespace's CPU/memory resource quota to match current zone count; add a pre-deployment check that validates quota sufficiency against the DAG's declared max concurrency."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 48
+    },
+    "incident_id": "INC-045",
+    "expected_rca_summary": "AI AutoRCA should identify: The Kubernetes namespace's resource quota (CPU requests) was sized for the DAG's original 10-zone design and never updated after zone count grew to 35, so the scheduler could only start 10 pods concurrently, queuing the rest.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task instances show 'queued' state with Kubernetes scheduler events indicating 'Insufficient cpu'",
+    "datadog_metrics": "Datadog kubernetes.namespace.cpu_requests hit the quota ceiling exactly when queued pod count began climbing",
+    "confidence_score": 0.87,
+    "resolution": "Increase the namespace's CPU/memory resource quota to match current zone count; add a pre-deployment check that validates quota sufficiency against the DAG's declared max concurrency.",
+    "preventive_action": "Add expected-concurrent-pod-count as a required metadata field so infrastructure capacity planning is validated automatically whenever a DAG's mapping cardinality changes."
+  }
+}

@@ -1,0 +1,237 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 44
+    },
+    "dag_id": "RTL_MKT_RETRY",
+    "dag_name": "Store Sales POS heartbeat retry storm",
+    "business_domain": "Marketing",
+    "lrj_category": "Retry Storm",
+    "schedule": "0 23 * * *",
+    "sla": "1h",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "Ad Platform APIs (Meta/Google Ads)",
+    "destination": "Snowflake RAW.MARKETING"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 521
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 522
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "get_active_endpoints",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "call_external_api"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the list of Marketing endpoints/accounts/vendors to map over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 523
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "call_external_api",
+      "task_type": "PythonOperator.expand (dynamic task mapping, exponential backoff retries)",
+      "upstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "api_calls_fanout",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per endpoint; retry policy is error-code-aware"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 524
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "aggregate_results",
+      "task_type": "PythonOperator (fan-in)",
+      "upstream_tasks": [
+        "call_external_api"
+      ],
+      "downstream_tasks": [
+        "error_rate_check"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Aggregates success/failure/retry counts across mapped instances"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 525
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "error_rate_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "normal",
+        "retry_storm_detected"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Evaluates aggregate retry/error rate against a storm threshold"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 526
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "normal",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry rate within normal bounds"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 527
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "retry_storm_detected",
+      "task_type": "PythonOperator (circuit breaker trip)",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "notify_teams_critical"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry storm detected, trips circuit breaker for downstream calls"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 528
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "notify_teams_critical",
+      "task_type": "PythonOperator (Teams Adaptive Card, P1)",
+      "upstream_tasks": [
+        "retry_storm_detected"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Pages on-call, attaches AutoRCA retry-storm analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 529
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "normal"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Marketing target with successfully retrieved records"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 530
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target",
+        "notify_teams_critical"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both branches"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 531
+      },
+      "dag_id": "RTL_MKT_RETRY",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 44
+    },
+    "incident_id": "INC-041",
+    "dag_id": "RTL_MKT_RETRY",
+    "incident_name": "Store Sales POS heartbeat retry storm",
+    "category": "Retry Storm",
+    "severity": "Sev-2 (High)",
+    "description": "Retry Storm incident on the Marketing pipeline (RTL_MKT_RETRY): store Sales POS heartbeat retry storm.",
+    "symptoms": "POS terminal heartbeat validation task, dynamically mapped per store (450 stores), generated 5,000+ retries after a regional network outage.",
+    "root_cause": "A regional ISP outage affected 60 stores simultaneously, and the DAG's per-store retry logic had no outage-awareness, so it kept retrying unreachable stores at the same aggressive interval as healthy ones, wasting scheduler/worker capacity that could have served healthy-store tasks faster.",
+    "business_impact": "Sales rollup for all 450 stores delayed, not just the 60 affected by the outage, because the retry storm consumed the shared worker pool.",
+    "resolution": "Add a circuit breaker per store that backs off aggressively (and isolates) after 3 consecutive failures, freeing pool capacity for healthy stores to complete on time."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 44
+    },
+    "incident_id": "INC-041",
+    "expected_rca_summary": "AI AutoRCA should identify: A regional ISP outage affected 60 stores simultaneously, and the DAG's per-store retry logic had no outage-awareness, so it kept retrying unreachable stores at the same aggressive interval as healthy ones, wasting scheduler/worker capacity that could have served healthy-store tasks faster.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow shows 60 specific store-mapped task instances consuming disproportionate scheduler time relative to their eventual failure outcome",
+    "datadog_metrics": "Datadog network.region_outage_flag (from an ISP status integration) correlates with the spike in POS heartbeat retries",
+    "confidence_score": 0.85,
+    "resolution": "Add a circuit breaker per store that backs off aggressively (and isolates) after 3 consecutive failures, freeing pool capacity for healthy stores to complete on time.",
+    "preventive_action": "Add store/vendor/site health-state tracking to the metadata model so the DAG factory can generate outage-aware, isolated retry logic per mapped instance rather than uniform retry policy."
+  }
+}

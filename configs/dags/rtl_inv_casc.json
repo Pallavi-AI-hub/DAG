@@ -1,0 +1,274 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 35
+    },
+    "dag_id": "RTL_INV_CASC",
+    "dag_name": "Product Master sync delay cascades into Ecommerce catalog publish",
+    "business_domain": "Inventory",
+    "lrj_category": "Cascading Delay",
+    "schedule": "0 8 * * *",
+    "sla": "1h (from upstream completion)",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "WMS (Manhattan Active)",
+    "destination": "Snowflake RAW.INVENTORY"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 414
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 415
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "sensor_upstream_a",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain A DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 416
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "sensor_upstream_b",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain B DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 417
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "sensor_upstream_c",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain C DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 418
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "fan_in_join",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "downstream_tasks": [
+        "consolidate_inv"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Requires all 3 upstream domains to have completed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 419
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "consolidate_inv",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "fan_in_join"
+      ],
+      "downstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Consolidates Inventory data across upstream domains"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 420
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "cascade_delay_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "consolidate_inv"
+      ],
+      "downstream_tasks": [
+        "on_time",
+        "cascaded_delay"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares actual start time to expected upstream-completion time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 421
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "on_time",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: no material cascade delay detected"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 422
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "cascaded_delay",
+      "task_type": "PythonOperator (AutoRCA cascade-RCA hook)",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "notify_cascade_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: cascade delay detected, triggers cross-DAG AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 423
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "notify_cascade_alert",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "cascaded_delay"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Notifies stakeholders of cascade impact with root-cause chain"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 424
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "on_time",
+        "notify_cascade_alert"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Loads Inventory consolidated target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 425
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Final join"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 426
+      },
+      "dag_id": "RTL_INV_CASC",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 35
+    },
+    "incident_id": "INC-032",
+    "dag_id": "RTL_INV_CASC",
+    "incident_name": "Product Master sync delay cascades into Ecommerce catalog publish",
+    "category": "Cascading Delay",
+    "severity": "Sev-2 (High)",
+    "description": "Cascading Delay incident on the Inventory pipeline (RTL_INV_CASC): product Master sync delay cascades into Ecommerce catalog publish.",
+    "symptoms": "Ecommerce catalog publish DAG, blocked on Product Master's full sync completion, is delayed 2h.",
+    "root_cause": "Product Master's sync neared its SLA ceiling (see Expected LRJ catalogue) and tipped over due to an unplanned new-SKU batch, and Ecommerce's publish DAG has zero tolerance built in - it triggers strictly on upstream DAG success signal.",
+    "business_impact": "New product launches scheduled for 9am go live 2 hours late on the ecommerce site, a directly measurable revenue-timing impact.",
+    "resolution": "Decouple catalog publish from full Product Master completion by publishing incrementally per completed batch using Airflow Datasets."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 35
+    },
+    "incident_id": "INC-032",
+    "expected_rca_summary": "AI AutoRCA should identify: Product Master's sync neared its SLA ceiling (see Expected LRJ catalogue) and tipped over due to an unplanned new-SKU batch, and Ecommerce's publish DAG has zero tolerance built in - it triggers strictly on upstream DAG success signal.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, cross-DAG lineage/dependency graph, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow shows catalog_publish DAG's trigger timestamp lagging upstream success timestamp by 2h",
+    "datadog_metrics": "Datadog release-readiness dashboard shows publish task start time drifting later, correlated with Product Master completion time",
+    "confidence_score": 0.84,
+    "resolution": "Decouple catalog publish from full Product Master completion by publishing incrementally per completed batch using Airflow Datasets.",
+    "preventive_action": "Add lead-time buffers to launch-critical DAGs in the metadata model's scheduling section, informed by historical upstream duration percentiles."
+  }
+}

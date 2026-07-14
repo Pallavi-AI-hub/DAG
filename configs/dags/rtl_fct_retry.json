@@ -1,0 +1,237 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 42
+    },
+    "dag_id": "RTL_FCT_RETRY",
+    "dag_name": "Customers CRM sync retry storm",
+    "business_domain": "Forecasting",
+    "lrj_category": "Retry Storm",
+    "schedule": "*/20 * * * *",
+    "sla": "30m",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "ML Feature Store (Vertex AI)",
+    "destination": "Snowflake RAW.FORECAST"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 499
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 500
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "get_active_endpoints",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "call_external_api"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the list of Forecasting endpoints/accounts/vendors to map over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 501
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "call_external_api",
+      "task_type": "PythonOperator.expand (dynamic task mapping, exponential backoff retries)",
+      "upstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "api_calls_fanout",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per endpoint; retry policy is error-code-aware"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 502
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "aggregate_results",
+      "task_type": "PythonOperator (fan-in)",
+      "upstream_tasks": [
+        "call_external_api"
+      ],
+      "downstream_tasks": [
+        "error_rate_check"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Aggregates success/failure/retry counts across mapped instances"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 503
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "error_rate_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "normal",
+        "retry_storm_detected"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Evaluates aggregate retry/error rate against a storm threshold"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 504
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "normal",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry rate within normal bounds"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 505
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "retry_storm_detected",
+      "task_type": "PythonOperator (circuit breaker trip)",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "notify_teams_critical"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry storm detected, trips circuit breaker for downstream calls"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 506
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "notify_teams_critical",
+      "task_type": "PythonOperator (Teams Adaptive Card, P1)",
+      "upstream_tasks": [
+        "retry_storm_detected"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Pages on-call, attaches AutoRCA retry-storm analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 507
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "normal"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Forecasting target with successfully retrieved records"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 508
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target",
+        "notify_teams_critical"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both branches"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 509
+      },
+      "dag_id": "RTL_FCT_RETRY",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 42
+    },
+    "incident_id": "INC-039",
+    "dag_id": "RTL_FCT_RETRY",
+    "incident_name": "Customers CRM sync retry storm",
+    "category": "Retry Storm",
+    "severity": "Sev-2 (High)",
+    "description": "Retry Storm incident on the Forecasting pipeline (RTL_FCT_RETRY): customers CRM sync retry storm.",
+    "symptoms": "Salesforce CRM incremental sync task retried 620 times within its scheduled window.",
+    "root_cause": "A Salesforce API version deprecation silently changed an error response's HTTP status from 400 to 429 for a specific malformed-query condition, and the retry policy treats all 429s as rate-limiting (retry), when in this case it was a genuine query bug needing a fix, not a retry.",
+    "business_impact": "CRM sync never completed, so customer service agents worked from a data snapshot up to 18 hours stale during a product recall communication effort.",
+    "resolution": "Fix the malformed SOQL query causing the error; add response-body inspection (not just status code) to differentiate genuine rate-limiting from misclassified errors."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 42
+    },
+    "incident_id": "INC-039",
+    "expected_rca_summary": "AI AutoRCA should identify: A Salesforce API version deprecation silently changed an error response's HTTP status from 400 to 429 for a specific malformed-query condition, and the retry policy treats all 429s as rate-limiting (retry), when in this case it was a genuine query bug needing a fix, not a retry.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task retry log shows identical error message text across all 620 attempts, suggesting a deterministic (not transient) failure",
+    "datadog_metrics": "Datadog external_api.429_response_rate spiked but salesforce.api_usage_limit metric stayed well under threshold - a red flag that it wasn't real rate limiting",
+    "confidence_score": 0.84,
+    "resolution": "Fix the malformed SOQL query causing the error; add response-body inspection (not just status code) to differentiate genuine rate-limiting from misclassified errors.",
+    "preventive_action": "Add a rule to the DAG factory's error-handling template requiring response-body pattern matching for ambiguous status codes like 429, not status-code-only classification."
+  }
+}

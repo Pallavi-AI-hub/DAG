@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 27
+    },
+    "dag_id": "RTL_FCT_STUCK",
+    "dag_name": "Warehouse pallet-manifest ETL hangs on a network call",
+    "business_domain": "Forecasting",
+    "lrj_category": "Stuck/Hung Job",
+    "schedule": "*/30 * * * *",
+    "sla": "1h",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "ML Feature Store (Vertex AI)",
+    "destination": "Snowflake RAW.FORECAST"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 315
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 316
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "connectivity_precheck",
+      "task_type": "PythonOperator (handshake/reachability check)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "external_event_sensor"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates upstream reachability before entering poke mode"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 317
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "external_event_sensor",
+      "task_type": "Sensor (reschedule mode, bounded timeout)",
+      "upstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "downstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on external file/event/webhook signal from Forecasting source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 318
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "branch_on_sensor_result",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "external_event_sensor"
+      ],
+      "downstream_tasks": [
+        "arrived",
+        "timed_out"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether sensor resolved or timed out"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 319
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "arrived",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "heavy_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: signal arrived in time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 320
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "timed_out",
+      "task_type": "PythonOperator (fallback trigger)",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: sensor exceeded bounded timeout"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 321
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "fallback_degraded_path",
+      "task_type": "PythonOperator (degraded-mode processing)",
+      "upstream_tasks": [
+        "timed_out"
+      ],
+      "downstream_tasks": [
+        "notify_stuck_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Processes with prior-period data / partial data as fallback"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 322
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "heavy_transform",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "arrived"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Main transform once signal received"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 323
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "heavy_transform"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Forecasting target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 324
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "notify_stuck_alert",
+      "task_type": "PythonOperator (Teams + AutoRCA hang-detection hook)",
+      "upstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Alerts on-call and triggers AutoRCA hang analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 325
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "notify_stuck_alert"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 326
+      },
+      "dag_id": "RTL_FCT_STUCK",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 27
+    },
+    "incident_id": "INC-024",
+    "dag_id": "RTL_FCT_STUCK",
+    "incident_name": "Warehouse pallet-manifest ETL hangs on a network call",
+    "category": "Stuck/Hung Job",
+    "severity": "Sev-2 (High)",
+    "description": "Stuck/Hung Job incident on the Forecasting pipeline (RTL_FCT_STUCK): warehouse pallet-manifest ETL hangs on a network call.",
+    "symptoms": "The MinIO-to-Snowflake COPY task for pallet manifests has been running 11 hours against a typical 25-minute duration, with no CPU activity in the container.",
+    "root_cause": "A network ACL change on the MinIO side silently dropped outbound keep-alive packets, leaving the TCP connection in a half-open state that the client library never times out on.",
+    "business_impact": "Warehouse manifest data unavailable, blocking put-away confirmation for two full inbound truck shipments.",
+    "resolution": "Kill and restart the task with a client-side socket timeout configured; escalate the network ACL issue to infrastructure."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 27
+    },
+    "incident_id": "INC-024",
+    "expected_rca_summary": "AI AutoRCA should identify: A network ACL change on the MinIO side silently dropped outbound keep-alive packets, leaving the TCP connection in a half-open state that the client library never times out on.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task has zero log output for 10+ hours despite running state",
+    "datadog_metrics": "Datadog container.cpu.usage near-zero while task shows 'running' - classic hang signature",
+    "confidence_score": 0.79,
+    "resolution": "Kill and restart the task with a client-side socket timeout configured; escalate the network ACL issue to infrastructure.",
+    "preventive_action": "Add a client-side connect/read timeout to every network-bound operator as a mandatory metadata field, with a default of 10 minutes."
+  }
+}

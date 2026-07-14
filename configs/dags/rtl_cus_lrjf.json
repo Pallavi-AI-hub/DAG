@@ -1,0 +1,254 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 23
+    },
+    "dag_id": "RTL_CUS_LRJF",
+    "dag_name": "Warehouse slotting-optimization batch fails on secret expiry",
+    "business_domain": "Customers",
+    "lrj_category": "Long Running Job Failure",
+    "schedule": "0 1 * * *",
+    "sla": "5h",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "CRM (Salesforce Service Cloud)",
+    "destination": "Snowflake RAW.CUSTOMER"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 267
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_cus"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 268
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "extract_cus",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "checkpoint_1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Customers source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 269
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "checkpoint_1",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "extract_cus"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state for restartability"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 270
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "heavy_transform_stage1",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_1"
+      ],
+      "downstream_tasks": [
+        "checkpoint_2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 1 of multi-stage transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 271
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "checkpoint_2",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 272
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "heavy_transform_stage2",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_2"
+      ],
+      "downstream_tasks": [
+        "checkpoint_3"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 2 - historically the failure point for this DAG"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 273
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "checkpoint_3",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists final pre-load state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 274
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "checkpoint_3"
+      ],
+      "downstream_tasks": [
+        "notify_teams_success"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Customers target table/object"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 275
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "notify_teams_success",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Success notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 276
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "on_failure_callback_trigger",
+      "task_type": "PythonOperator (AutoRCA callback)",
+      "upstream_tasks": [
+        "heavy_transform_stage1",
+        "heavy_transform_stage2",
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams_failure"
+      ],
+      "trigger_rule": "one_failed",
+      "dependencies": "Fires AI AutoRCA multi-agent investigation on any task failure"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 277
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "notify_teams_failure",
+      "task_type": "PythonOperator (Teams Adaptive Card + RCA summary)",
+      "upstream_tasks": [
+        "on_failure_callback_trigger"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Failure notification with AutoRCA findings attached"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 278
+      },
+      "dag_id": "RTL_CUS_LRJF",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams_success",
+        "notify_teams_failure"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 23
+    },
+    "incident_id": "INC-020",
+    "dag_id": "RTL_CUS_LRJF",
+    "incident_name": "Warehouse slotting-optimization batch fails on secret expiry",
+    "category": "Long Running Job Failure",
+    "severity": "Sev-2 (High)",
+    "description": "Long Running Job Failure incident on the Customers pipeline (RTL_CUS_LRJF): warehouse slotting-optimization batch fails on secret expiry.",
+    "symptoms": "Nightly warehouse slotting-optimization DAG fails after 4h at the final MinIO upload step with an authentication error.",
+    "root_cause": "The MinIO service-account access key rotated automatically (90-day policy) but the Airflow connection's Secret was not updated in the secrets manager sync job.",
+    "business_impact": "Optimized slotting plan for next-day picking not published; warehouse operates on a 2-day-old plan, reducing picking efficiency.",
+    "resolution": "Rotate and update the MinIO credential in the Airflow connection; add a credential-expiry pre-check sensor at DAG start rather than failing 4 hours in."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 23
+    },
+    "incident_id": "INC-020",
+    "expected_rca_summary": "AI AutoRCA should identify: The MinIO service-account access key rotated automatically (90-day policy) but the Airflow connection's Secret was not updated in the secrets manager sync job.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task fails with S3 SignatureDoesNotMatch / 403 Forbidden error",
+    "datadog_metrics": "Datadog secretsmanager.rotation event logged 6h before the failure with no corresponding Airflow connection update",
+    "confidence_score": 0.89,
+    "resolution": "Rotate and update the MinIO credential in the Airflow connection; add a credential-expiry pre-check sensor at DAG start rather than failing 4 hours in.",
+    "preventive_action": "Automate secret rotation propagation from the secrets manager to Airflow connections via a scheduled sync DAG with alerting on drift."
+  }
+}

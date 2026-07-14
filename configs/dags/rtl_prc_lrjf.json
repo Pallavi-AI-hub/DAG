@@ -1,0 +1,254 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 21
+    },
+    "dag_id": "RTL_PRC_LRJF",
+    "dag_name": "Forecasting model-scoring batch fails on OOM",
+    "business_domain": "Pricing",
+    "lrj_category": "Long Running Job Failure",
+    "schedule": "0 3 * * 1",
+    "sla": "7h",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "Pricing Engine (Revionics)",
+    "destination": "Snowflake RAW.PRICING"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 243
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_prc"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 244
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "extract_prc",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "checkpoint_1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Pricing source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 245
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "checkpoint_1",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "extract_prc"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state for restartability"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 246
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "heavy_transform_stage1",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_1"
+      ],
+      "downstream_tasks": [
+        "checkpoint_2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 1 of multi-stage transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 247
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "checkpoint_2",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 248
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "heavy_transform_stage2",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_2"
+      ],
+      "downstream_tasks": [
+        "checkpoint_3"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 2 - historically the failure point for this DAG"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 249
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "checkpoint_3",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists final pre-load state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 250
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "checkpoint_3"
+      ],
+      "downstream_tasks": [
+        "notify_teams_success"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Pricing target table/object"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 251
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "notify_teams_success",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Success notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 252
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "on_failure_callback_trigger",
+      "task_type": "PythonOperator (AutoRCA callback)",
+      "upstream_tasks": [
+        "heavy_transform_stage1",
+        "heavy_transform_stage2",
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams_failure"
+      ],
+      "trigger_rule": "one_failed",
+      "dependencies": "Fires AI AutoRCA multi-agent investigation on any task failure"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 253
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "notify_teams_failure",
+      "task_type": "PythonOperator (Teams Adaptive Card + RCA summary)",
+      "upstream_tasks": [
+        "on_failure_callback_trigger"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Failure notification with AutoRCA findings attached"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 254
+      },
+      "dag_id": "RTL_PRC_LRJF",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams_success",
+        "notify_teams_failure"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 21
+    },
+    "incident_id": "INC-018",
+    "dag_id": "RTL_PRC_LRJF",
+    "incident_name": "Forecasting model-scoring batch fails on OOM",
+    "category": "Long Running Job Failure",
+    "severity": "Sev-1 (Critical)",
+    "description": "Long Running Job Failure incident on the Pricing pipeline (RTL_PRC_LRJF): forecasting model-scoring batch fails on OOM.",
+    "symptoms": "Weekly demand-forecast scoring DAG fails at 5h20m with an out-of-memory error during the final ensemble-blend step.",
+    "root_cause": "A newly added SKU cluster (regional exclusives, +18,000 SKUs) was scored in a single in-memory pandas DataFrame without chunking, exceeding the worker's 16GB memory limit.",
+    "business_impact": "Weekly replenishment recommendations unavailable, forcing planners to fall back to manual, less-accurate ordering for the week.",
+    "resolution": "Chunk the ensemble-blend step by SKU cluster using dynamic task mapping; move to a memory-bounded processing engine (Dask/Spark) for this step."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 21
+    },
+    "incident_id": "INC-018",
+    "expected_rca_summary": "AI AutoRCA should identify: A newly added SKU cluster (regional exclusives, +18,000 SKUs) was scored in a single in-memory pandas DataFrame without chunking, exceeding the worker's 16GB memory limit.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task marked failed, Kubernetes pod event shows OOMKilled reason",
+    "datadog_metrics": "Datadog container.memory.usage climbed linearly then OOM-killed at 15.8GB/16GB limit",
+    "confidence_score": 0.86,
+    "resolution": "Chunk the ensemble-blend step by SKU cluster using dynamic task mapping; move to a memory-bounded processing engine (Dask/Spark) for this step.",
+    "preventive_action": "Add a memory-usage forecast check in the metadata model that estimates peak RAM from expected row count before scheduling."
+  }
+}

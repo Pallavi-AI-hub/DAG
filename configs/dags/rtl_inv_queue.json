@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 50
+    },
+    "dag_id": "RTL_INV_QUEUE",
+    "dag_name": "Store Sales nightly rollup DAG-level scheduler congestion",
+    "business_domain": "Inventory",
+    "lrj_category": "Queue Congestion",
+    "schedule": "30 23 * * *",
+    "sla": "1h",
+    "priority": "P2",
+    "criticality": "Medium",
+    "source": "WMS (Manhattan Active)",
+    "destination": "Snowflake RAW.INVENTORY"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 579
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 580
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "get_mapping_keys",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "process_unit"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the Inventory entity list (stores/zones/segments/vendors) to fan out over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 581
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "process_unit",
+      "task_type": "PythonOperator.expand (dynamic task mapping, dedicated pool)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "fanout_pool",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per entity, bound to a dedicated Airflow pool"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 582
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "pool_saturation_monitor",
+      "task_type": "PythonOperator (Datadog pool.open_slots check)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Runs in parallel with process_unit, watches shared pool capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 583
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "aggregate_results",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "process_unit",
+        "pool_saturation_monitor"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of all mapped instances plus the monitor"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 584
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Inventory target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 585
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "datadog_queue_depth_check",
+      "task_type": "PythonOperator (AutoRCA congestion hook)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether queue congestion impacted this or sibling DAGs"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 586
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Run summary notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 587
+      },
+      "dag_id": "RTL_INV_QUEUE",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 50
+    },
+    "incident_id": "INC-047",
+    "dag_id": "RTL_INV_QUEUE",
+    "incident_name": "Store Sales nightly rollup DAG-level scheduler congestion",
+    "category": "Queue Congestion",
+    "severity": "Sev-2 (Medium)",
+    "description": "Queue Congestion incident on the Inventory pipeline (RTL_INV_QUEUE): store Sales nightly rollup DAG-level scheduler congestion.",
+    "symptoms": "450 per-store rollup tasks, generated dynamically, overwhelmed the Airflow scheduler's parsing and scheduling loop itself, not just the executor.",
+    "root_cause": "The scheduler's parsing loop performance degrades non-linearly with very high per-DAG-run task counts when using classic (non-deferred) dynamic task mapping without batching, causing scheduler heartbeat delays across the entire Airflow instance.",
+    "business_impact": "Scheduler-wide latency degraded briefly, causing minor scheduling delays on unrelated DAGs across the platform during the incident window.",
+    "resolution": "Batch stores into groups of 25 (18 mapped tasks each handling 25 stores) instead of 450 individual mapped tasks, reducing scheduler overhead while retaining parallelism."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 50
+    },
+    "incident_id": "INC-047",
+    "expected_rca_summary": "AI AutoRCA should identify: The scheduler's parsing loop performance degrades non-linearly with very high per-DAG-run task counts when using classic (non-deferred) dynamic task mapping without batching, causing scheduler heartbeat delays across the entire Airflow instance.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow scheduler logs show elevated DAG-parsing loop duration correlated with this DAG's scheduled run time",
+    "datadog_metrics": "Datadog airflow.scheduler.heartbeat_latency spiked platform-wide during the rollup DAG's peak task-generation moment",
+    "confidence_score": 0.8,
+    "resolution": "Batch stores into groups of 25 (18 mapped tasks each handling 25 stores) instead of 450 individual mapped tasks, reducing scheduler overhead while retaining parallelism.",
+    "preventive_action": "Add a 'max recommended mapped-task cardinality per DAG-run' guideline to the DAG factory template, with batching logic auto-applied above a threshold (e.g., 100)."
+  }
+}

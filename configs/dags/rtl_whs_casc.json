@@ -1,0 +1,274 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 32
+    },
+    "dag_id": "RTL_WHS_CASC",
+    "dag_name": "Store Sales delay cascades into Finance daily close",
+    "business_domain": "Warehouse",
+    "lrj_category": "Cascading Delay",
+    "schedule": "0 7 * * *",
+    "sla": "2h (from upstream completion)",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "WMS + MinIO (pallet manifests)",
+    "destination": "Snowflake RAW.WAREHOUSE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 375
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 376
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "sensor_upstream_a",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain A DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 377
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "sensor_upstream_b",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain B DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 378
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "sensor_upstream_c",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain C DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 379
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "fan_in_join",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "downstream_tasks": [
+        "consolidate_whs"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Requires all 3 upstream domains to have completed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 380
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "consolidate_whs",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "fan_in_join"
+      ],
+      "downstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Consolidates Warehouse data across upstream domains"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 381
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "cascade_delay_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "consolidate_whs"
+      ],
+      "downstream_tasks": [
+        "on_time",
+        "cascaded_delay"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares actual start time to expected upstream-completion time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 382
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "on_time",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: no material cascade delay detected"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 383
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "cascaded_delay",
+      "task_type": "PythonOperator (AutoRCA cascade-RCA hook)",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "notify_cascade_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: cascade delay detected, triggers cross-DAG AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 384
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "notify_cascade_alert",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "cascaded_delay"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Notifies stakeholders of cascade impact with root-cause chain"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 385
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "on_time",
+        "notify_cascade_alert"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Loads Warehouse consolidated target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 386
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Final join"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 387
+      },
+      "dag_id": "RTL_WHS_CASC",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 32
+    },
+    "incident_id": "INC-029",
+    "dag_id": "RTL_WHS_CASC",
+    "incident_name": "Store Sales delay cascades into Finance daily close",
+    "category": "Cascading Delay",
+    "severity": "Sev-1 (Critical)",
+    "description": "Cascading Delay incident on the Warehouse pipeline (RTL_WHS_CASC): store Sales delay cascades into Finance daily close.",
+    "symptoms": "Finance daily close DAG, gated by an ExternalTaskSensor on Store Sales rollup, starts 3h45m late and finishes past its own SLA.",
+    "root_cause": "The upstream Store Sales rollup DAG (see LRJ Failure catalogue) ran long due to a Kafka duplicate-event issue, and the downstream Finance DAG's sensor has no independent SLA of its own, only inheriting the delay.",
+    "business_impact": "Daily sales journal entries post late for two consecutive business days, delaying the finance team's variance analysis.",
+    "resolution": "Trigger Finance close via a dataset-based trigger (data-aware scheduling) with a documented fallback partial-run path instead of a blocking sensor with no independent ceiling."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 32
+    },
+    "incident_id": "INC-029",
+    "expected_rca_summary": "AI AutoRCA should identify: The upstream Store Sales rollup DAG (see LRJ Failure catalogue) ran long due to a Kafka duplicate-event issue, and the downstream Finance DAG's sensor has no independent SLA of its own, only inheriting the delay.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, cross-DAG lineage/dependency graph, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow ExternalTaskSensor log shows extended poke duration matching upstream DAG's late completion timestamp",
+    "datadog_metrics": "Datadog dag_dependency.upstream_delay custom metric shows correlated spike across both DAGs",
+    "confidence_score": 0.87,
+    "resolution": "Trigger Finance close via a dataset-based trigger (data-aware scheduling) with a documented fallback partial-run path instead of a blocking sensor with no independent ceiling.",
+    "preventive_action": "Model cross-DAG dependencies explicitly in the metadata model with a 'max_acceptable_upstream_delay' field so AutoRCA can flag cascade risk before the SLA is actually missed."
+  }
+}

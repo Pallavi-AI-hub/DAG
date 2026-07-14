@@ -1,0 +1,296 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 7
+    },
+    "dag_id": "RTL_ORD_ELRJ",
+    "dag_name": "Orders end-of-day settlement batch at expected long duration",
+    "business_domain": "Orders",
+    "lrj_category": "Expected Long Running Job",
+    "schedule": "0 23 * * *",
+    "sla": "5h (peak calendar override)",
+    "priority": "P3",
+    "criticality": "Medium",
+    "source": "Ecommerce OMS (Salesforce Commerce)",
+    "destination": "Snowflake RAW.ORDERS"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 46
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_ord_source"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 47
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "extract_ord_source",
+      "task_type": "PythonOperator (API/DB extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "validate_schema"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Pulls from Orders source system"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 48
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "validate_schema",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "extract_ord_source"
+      ],
+      "downstream_tasks": [
+        "schema_ok",
+        "schema_drift_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates inbound schema against contract"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 49
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "schema_ok",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "validate_schema"
+      ],
+      "downstream_tasks": [
+        "transform_p1",
+        "transform_p2",
+        "transform_p3"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: schema passed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 50
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "schema_drift_alert",
+      "task_type": "PythonOperator (Teams notify)",
+      "upstream_tasks": [
+        "validate_schema"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: schema drift detected, non-blocking alert"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 51
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "transform_p1",
+      "task_type": "PythonOperator (partition 1)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 52
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "transform_p2",
+      "task_type": "PythonOperator (partition 2)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 53
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "transform_p3",
+      "task_type": "PythonOperator (partition 3)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 54
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "join_transform",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "transform_p1",
+        "transform_p2",
+        "transform_p3",
+        "schema_drift_alert"
+      ],
+      "downstream_tasks": [
+        "load_snowflake_ord"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of parallel partitions"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 55
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "load_snowflake_ord",
+      "task_type": "SnowflakeOperator (MERGE)",
+      "upstream_tasks": [
+        "join_transform"
+      ],
+      "downstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Orders RAW/staging table"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 56
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "sla_buffer_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "load_snowflake_ord"
+      ],
+      "downstream_tasks": [
+        "within_sla",
+        "near_sla_warning"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares run duration to SLA ratio threshold (85%)"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 57
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "within_sla",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: comfortably within SLA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 58
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "near_sla_warning",
+      "task_type": "PythonOperator (Datadog custom metric + Teams)",
+      "upstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: near SLA ceiling, early warning to AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 59
+      },
+      "dag_id": "RTL_ORD_ELRJ",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "within_sla",
+        "near_sla_warning"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 7
+    },
+    "incident_id": "INC-004",
+    "dag_id": "RTL_ORD_ELRJ",
+    "incident_name": "Orders end-of-day settlement batch at expected long duration",
+    "category": "Expected Long Running Job",
+    "severity": "Sev-3 (Medium)",
+    "description": "Expected Long Running Job incident on the Orders pipeline (RTL_ORD_ELRJ): orders end-of-day settlement batch at expected long duration.",
+    "symptoms": "Settlement DAG for online + BOPIS orders runs 3h consistently on Black-Friday-adjacent dates by design.",
+    "root_cause": "Order volume is seasonally 5x baseline; DAG was intentionally designed with a wider SLA window for peak dates via metadata calendar override.",
+    "business_impact": "None currently; documented as expected. Risk only if duration exceeds the seasonal override SLA.",
+    "resolution": "No remediation needed; continue monitoring against the seasonal SLA profile."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 7
+    },
+    "incident_id": "INC-004",
+    "expected_rca_summary": "AI AutoRCA should identify: Order volume is seasonally 5x baseline; DAG was intentionally designed with a wider SLA window for peak dates via metadata calendar override.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics",
+    "airflow_logs": "Airflow DAG run marked success within calendar-adjusted SLA",
+    "datadog_metrics": "Datadog dashboard shows duration within seasonal band, not flagged as anomaly",
+    "confidence_score": 0.95,
+    "resolution": "No remediation needed; continue monitoring against the seasonal SLA profile.",
+    "preventive_action": "Ensure metadata-driven SLA calendar is reviewed each peak season and validated against actuals."
+  }
+}

@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 57
+    },
+    "dag_id": "RTL_FCT_RES",
+    "dag_name": "Ecommerce real-time personalization cache exhausts Redis memory",
+    "business_domain": "Forecasting",
+    "lrj_category": "Resource Exhaustion",
+    "schedule": "*/15 * * * *",
+    "sla": "20m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "ML Feature Store (Vertex AI)",
+    "destination": "Snowflake RAW.FORECAST"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 654
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_fct"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 655
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "extract_fct",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "resource_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Forecasting source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 656
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "resource_precheck",
+      "task_type": "PythonOperator (memory/CPU budget estimate)",
+      "upstream_tasks": [
+        "extract_fct"
+      ],
+      "downstream_tasks": [
+        "heavy_inmemory_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Estimates peak resource usage from row-count metadata before compute"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 657
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "heavy_inmemory_transform",
+      "task_type": "PythonOperator (resource requests/limits set)",
+      "upstream_tasks": [
+        "resource_precheck"
+      ],
+      "downstream_tasks": [
+        "memory_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Resource-intensive in-memory computation, historically prone to exhaustion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 658
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "memory_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "heavy_inmemory_transform"
+      ],
+      "downstream_tasks": [
+        "within_budget",
+        "near_exhaustion"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Checks actual peak usage against budget mid-run/post-run"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 659
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "within_budget",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "memory_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: resource usage within safe budget"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 660
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "near_exhaustion",
+      "task_type": "PythonOperator (chunked fallback)",
+      "upstream_tasks": [
+        "memory_check"
+      ],
+      "downstream_tasks": [
+        "chunked_fallback_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: near resource ceiling, reroutes to chunked processing"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 661
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "chunked_fallback_transform",
+      "task_type": "PythonOperator.expand (chunked, dynamic task mapping)",
+      "upstream_tasks": [
+        "near_exhaustion"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Reprocesses in bounded-memory chunks"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 662
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "within_budget"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Forecasting target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 663
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "chunked_fallback_transform"
+      ],
+      "downstream_tasks": [
+        "datadog_resource_check"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 664
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "datadog_resource_check",
+      "task_type": "PythonOperator (AutoRCA resource-exhaustion hook)",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Logs final resource profile for trend monitoring"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 665
+      },
+      "dag_id": "RTL_FCT_RES",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "datadog_resource_check"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 57
+    },
+    "incident_id": "INC-054",
+    "dag_id": "RTL_FCT_RES",
+    "incident_name": "Ecommerce real-time personalization cache exhausts Redis memory",
+    "category": "Resource Exhaustion",
+    "severity": "Sev-1 (Critical)",
+    "description": "Resource Exhaustion incident on the Forecasting pipeline (RTL_FCT_RES): ecommerce real-time personalization cache exhausts Redis memory.",
+    "symptoms": "The personalization-cache refresh task periodically fills the shared Redis instance to its maxmemory limit, triggering eviction of unrelated session-cache keys used by the live checkout flow.",
+    "root_cause": "The personalization DAG was never given its own Redis instance/namespace with a bounded key-eviction policy, so as the customer-segment cache grew (a new micro-segmentation feature added 40x more cache keys), it competed for memory with checkout session data on the same Redis cluster.",
+    "business_impact": "Checkout sessions were occasionally evicted from cache mid-session during the memory-pressure window, causing a small number of customers to be logged out or lose cart state during checkout, a direct, measurable revenue-risk event.",
+    "resolution": "Move personalization cache to a dedicated Redis instance with its own maxmemory and eviction policy, isolated from checkout-critical session data."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 57
+    },
+    "incident_id": "INC-054",
+    "expected_rca_summary": "AI AutoRCA should identify: The personalization DAG was never given its own Redis instance/namespace with a bounded key-eviction policy, so as the customer-segment cache grew (a new micro-segmentation feature added 40x more cache keys), it competed for memory with checkout session data on the same Redis cluster.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task itself succeeds (no failure), but the AutoRCA correlation surfaces the downstream checkout impact via cross-service Datadog tagging",
+    "datadog_metrics": "Datadog redis.memory.used approaching maxmemory with evicted_keys metric spiking, tagged keys show mixed personalization/session prefixes",
+    "confidence_score": 0.86,
+    "resolution": "Move personalization cache to a dedicated Redis instance with its own maxmemory and eviction policy, isolated from checkout-critical session data.",
+    "preventive_action": "Require any shared-infrastructure resource (Redis, shared DB, shared queue) usage to be declared in the metadata model with an isolation/blast-radius assessment before production deployment."
+  }
+}

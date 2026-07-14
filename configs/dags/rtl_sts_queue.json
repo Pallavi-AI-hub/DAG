@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 46
+    },
+    "dag_id": "RTL_STS_QUEUE",
+    "dag_name": "Orders fulfillment task-mapping saturates the Celery executor pool",
+    "business_domain": "Store Sales",
+    "lrj_category": "Queue Congestion",
+    "schedule": "*/10 * * * *",
+    "sla": "20m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "POS Kafka Stream",
+    "destination": "Snowflake RAW.STORE_SALES"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 543
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 544
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "get_mapping_keys",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "process_unit"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the Store Sales entity list (stores/zones/segments/vendors) to fan out over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 545
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "process_unit",
+      "task_type": "PythonOperator.expand (dynamic task mapping, dedicated pool)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "fanout_pool",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per entity, bound to a dedicated Airflow pool"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 546
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "pool_saturation_monitor",
+      "task_type": "PythonOperator (Datadog pool.open_slots check)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Runs in parallel with process_unit, watches shared pool capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 547
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "aggregate_results",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "process_unit",
+        "pool_saturation_monitor"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of all mapped instances plus the monitor"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 548
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Store Sales target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 549
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "datadog_queue_depth_check",
+      "task_type": "PythonOperator (AutoRCA congestion hook)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether queue congestion impacted this or sibling DAGs"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 550
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Run summary notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 551
+      },
+      "dag_id": "RTL_STS_QUEUE",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 46
+    },
+    "incident_id": "INC-043",
+    "dag_id": "RTL_STS_QUEUE",
+    "incident_name": "Orders fulfillment task-mapping saturates the Celery executor pool",
+    "category": "Queue Congestion",
+    "severity": "Sev-1 (Critical)",
+    "description": "Queue Congestion incident on the Store Sales pipeline (RTL_STS_QUEUE): orders fulfillment task-mapping saturates the Celery executor pool.",
+    "symptoms": "A dynamically mapped fulfillment-routing task (one mapped instance per pending order, ~8,000 during a sale) queued for 2h before the last instances began executing.",
+    "root_cause": "The DAG's mapped task count exceeded the Celery worker pool's total slot capacity (200) by 40x with no pool assignment, so it competed directly with every other production DAG sharing the default pool.",
+    "business_impact": "Every other DAG sharing the default Celery pool experienced queuing delays, turning a single order-spike event into a platform-wide slowdown affecting 15+ unrelated DAGs.",
+    "resolution": "Assign this DAG's mapped tasks to a dedicated Airflow pool sized appropriately, and add max_active_tis_per_dag to bound how many mapped instances run concurrently."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 46
+    },
+    "incident_id": "INC-043",
+    "expected_rca_summary": "AI AutoRCA should identify: The DAG's mapped task count exceeded the Celery worker pool's total slot capacity (200) by 40x with no pool assignment, so it competed directly with every other production DAG sharing the default pool.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow UI Pools view shows 8,000 queued task instances against 200 total slots",
+    "datadog_metrics": "Datadog airflow.pool.open_slots for the default pool hit 0 and stayed there for 2h",
+    "confidence_score": 0.9,
+    "resolution": "Assign this DAG's mapped tasks to a dedicated Airflow pool sized appropriately, and add max_active_tis_per_dag to bound how many mapped instances run concurrently.",
+    "preventive_action": "Require every DAG in the metadata model to declare a target Airflow pool and a max-concurrency value at registration; default (shared) pool usage should require an explicit exception."
+  }
+}

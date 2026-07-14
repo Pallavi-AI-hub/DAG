@@ -1,0 +1,314 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 13
+    },
+    "dag_id": "RTL_FIN_ULRJ",
+    "dag_name": "Finance GL trial balance close job duration anomaly",
+    "business_domain": "Finance",
+    "lrj_category": "Unexpected Long Running Job",
+    "schedule": "0 5 1 * *",
+    "sla": "3h",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "ERP GL (SAP FI/CO)",
+    "destination": "Snowflake RAW.FINANCE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 132
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 133
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "extract_p1",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 134
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "extract_p2",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 135
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "extract_p3",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 136
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "extract_p4",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 137
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "volume_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "downstream_tasks": [
+        "normal_volume",
+        "high_volume_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares extracted row count to historical baseline"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 138
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "normal_volume",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_standard"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume within normal range"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 139
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "high_volume_path",
+      "task_type": "PythonOperator (scale_workers)",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_scaled"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume anomaly, requests additional worker capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 140
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "transform_standard",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "normal_volume"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Standard-capacity transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 141
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "transform_scaled",
+      "task_type": "PythonOperator (dynamic task mapping)",
+      "upstream_tasks": [
+        "high_volume_path"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Scaled-capacity transform for volume anomaly"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 142
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "join_after_transform",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "transform_standard",
+        "transform_scaled"
+      ],
+      "downstream_tasks": [
+        "load_snowflake_fin"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in regardless of path taken"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 143
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "load_snowflake_fin",
+      "task_type": "SnowflakeOperator (MERGE)",
+      "upstream_tasks": [
+        "join_after_transform"
+      ],
+      "downstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Finance RAW/staging table"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 144
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "ai_autorca_duration_check",
+      "task_type": "PythonOperator (AutoRCA anomaly hook)",
+      "upstream_tasks": [
+        "load_snowflake_fin"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Compares actual vs expected duration, triggers AutoRCA on breach"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 145
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Sends run summary/alert card"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 146
+      },
+      "dag_id": "RTL_FIN_ULRJ",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 13
+    },
+    "incident_id": "INC-010",
+    "dag_id": "RTL_FIN_ULRJ",
+    "incident_name": "Finance GL trial balance close job duration anomaly",
+    "category": "Unexpected Long Running Job",
+    "severity": "Sev-1 (Critical)",
+    "description": "Unexpected Long Running Job incident on the Finance pipeline (RTL_FIN_ULRJ): finance GL trial balance close job duration anomaly.",
+    "symptoms": "Monthly close DAG jumped from 1h50m to 5h20m this cycle.",
+    "root_cause": "A new intercompany elimination rule set was deployed in SAP FI/CO mid-month, causing the SQL join in the elimination step to become non-sargable (function wrapped on indexed column).",
+    "business_impact": "Delayed month-end close reporting to Finance leadership by half a business day.",
+    "resolution": "Rewrite elimination query predicate to keep the indexed column bare; add query plan regression testing to the finance dbt CI pipeline."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 13
+    },
+    "incident_id": "INC-010",
+    "expected_rca_summary": "AI AutoRCA should identify: A new intercompany elimination rule set was deployed in SAP FI/CO mid-month, causing the SQL join in the elimination step to become non-sargable (function wrapped on indexed column).",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task logs show elimination_step duration 3x prior runs; no error, pure slowdown",
+    "datadog_metrics": "Datadog Snowflake query profile shows full table scan on GL_ELIMINATION, previously index seek",
+    "confidence_score": 0.86,
+    "resolution": "Rewrite elimination query predicate to keep the indexed column bare; add query plan regression testing to the finance dbt CI pipeline.",
+    "preventive_action": "Add automated query-plan regression testing to the finance dbt CI pipeline so non-sargable predicates are caught before deployment."
+  }
+}

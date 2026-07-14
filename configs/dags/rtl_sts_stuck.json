@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 31
+    },
+    "dag_id": "RTL_STS_STUCK",
+    "dag_name": "Marketing campaign-attribution join hangs on a cartesian product",
+    "business_domain": "Store Sales",
+    "lrj_category": "Stuck/Hung Job",
+    "schedule": "0 4 * * *",
+    "sla": "1.5h",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "POS Kafka Stream",
+    "destination": "Snowflake RAW.STORE_SALES"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 363
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 364
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "connectivity_precheck",
+      "task_type": "PythonOperator (handshake/reachability check)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "external_event_sensor"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates upstream reachability before entering poke mode"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 365
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "external_event_sensor",
+      "task_type": "Sensor (reschedule mode, bounded timeout)",
+      "upstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "downstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on external file/event/webhook signal from Store Sales source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 366
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "branch_on_sensor_result",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "external_event_sensor"
+      ],
+      "downstream_tasks": [
+        "arrived",
+        "timed_out"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether sensor resolved or timed out"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 367
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "arrived",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "heavy_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: signal arrived in time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 368
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "timed_out",
+      "task_type": "PythonOperator (fallback trigger)",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: sensor exceeded bounded timeout"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 369
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "fallback_degraded_path",
+      "task_type": "PythonOperator (degraded-mode processing)",
+      "upstream_tasks": [
+        "timed_out"
+      ],
+      "downstream_tasks": [
+        "notify_stuck_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Processes with prior-period data / partial data as fallback"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 370
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "heavy_transform",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "arrived"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Main transform once signal received"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 371
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "heavy_transform"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Store Sales target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 372
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "notify_stuck_alert",
+      "task_type": "PythonOperator (Teams + AutoRCA hang-detection hook)",
+      "upstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Alerts on-call and triggers AutoRCA hang analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 373
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "notify_stuck_alert"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 374
+      },
+      "dag_id": "RTL_STS_STUCK",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 31
+    },
+    "incident_id": "INC-028",
+    "dag_id": "RTL_STS_STUCK",
+    "incident_name": "Marketing campaign-attribution join hangs on a cartesian product",
+    "category": "Stuck/Hung Job",
+    "severity": "Sev-1 (Critical)",
+    "description": "Stuck/Hung Job incident on the Store Sales pipeline (RTL_STS_STUCK): marketing campaign-attribution join hangs on a cartesian product.",
+    "symptoms": "The daily attribution join task has been running 8 hours against a 40-minute baseline, consuming escalating Snowflake credits.",
+    "root_cause": "A join key (campaign_id) became non-unique in the source Ad Platform export after a schema change introduced duplicate rows per campaign per creative variant, turning a 1:1 join into an unbounded fan-out.",
+    "business_impact": "Marketing attribution dashboard unavailable ahead of a scheduled budget-reallocation meeting; Snowflake compute costs for the account spike unexpectedly.",
+    "resolution": "Kill the query, add a DISTINCT/dedup step on the source extract, add a row-count sanity-check gate before the join executes."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 31
+    },
+    "incident_id": "INC-028",
+    "expected_rca_summary": "AI AutoRCA should identify: A join key (campaign_id) became non-unique in the source Ad Platform export after a schema change introduced duplicate rows per campaign per creative variant, turning a 1:1 join into an unbounded fan-out.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task query profile (pulled via AutoRCA) shows row count growing exponentially mid-query",
+    "datadog_metrics": "Datadog snowflake.credits_used climbing abnormally during the task's runtime",
+    "confidence_score": 0.83,
+    "resolution": "Kill the query, add a DISTINCT/dedup step on the source extract, add a row-count sanity-check gate before the join executes.",
+    "preventive_action": "Add a pre-join cardinality-check task in the architecture template for every join-heavy DAG, failing fast if a join key's uniqueness assumption is violated."
+  }
+}

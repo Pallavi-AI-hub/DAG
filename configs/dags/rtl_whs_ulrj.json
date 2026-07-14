@@ -1,0 +1,314 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 17
+    },
+    "dag_id": "RTL_WHS_ULRJ",
+    "dag_name": "Ecommerce Shopify order-webhook backfill unexpectedly long",
+    "business_domain": "Warehouse",
+    "lrj_category": "Unexpected Long Running Job",
+    "schedule": "5 * * * *",
+    "sla": "15m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "WMS + MinIO (pallet manifests)",
+    "destination": "Snowflake RAW.WAREHOUSE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 192
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 193
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "extract_p1",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 194
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "extract_p2",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 195
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "extract_p3",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 196
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "extract_p4",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 197
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "volume_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "downstream_tasks": [
+        "normal_volume",
+        "high_volume_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares extracted row count to historical baseline"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 198
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "normal_volume",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_standard"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume within normal range"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 199
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "high_volume_path",
+      "task_type": "PythonOperator (scale_workers)",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_scaled"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume anomaly, requests additional worker capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 200
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "transform_standard",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "normal_volume"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Standard-capacity transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 201
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "transform_scaled",
+      "task_type": "PythonOperator (dynamic task mapping)",
+      "upstream_tasks": [
+        "high_volume_path"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Scaled-capacity transform for volume anomaly"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 202
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "join_after_transform",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "transform_standard",
+        "transform_scaled"
+      ],
+      "downstream_tasks": [
+        "load_snowflake_whs"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in regardless of path taken"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 203
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "load_snowflake_whs",
+      "task_type": "SnowflakeOperator (MERGE)",
+      "upstream_tasks": [
+        "join_after_transform"
+      ],
+      "downstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Warehouse RAW/staging table"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 204
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "ai_autorca_duration_check",
+      "task_type": "PythonOperator (AutoRCA anomaly hook)",
+      "upstream_tasks": [
+        "load_snowflake_whs"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Compares actual vs expected duration, triggers AutoRCA on breach"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 205
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Sends run summary/alert card"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 206
+      },
+      "dag_id": "RTL_WHS_ULRJ",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 17
+    },
+    "incident_id": "INC-014",
+    "dag_id": "RTL_WHS_ULRJ",
+    "incident_name": "Ecommerce Shopify order-webhook backfill unexpectedly long",
+    "category": "Unexpected Long Running Job",
+    "severity": "Sev-1 (Critical)",
+    "description": "Unexpected Long Running Job incident on the Warehouse pipeline (RTL_WHS_ULRJ): ecommerce Shopify order-webhook backfill unexpectedly long.",
+    "symptoms": "Hourly Shopify order sync went from 8min to 55min after a flash-sale event.",
+    "root_cause": "A flash sale drove a 22x order spike within the hour, and the extractor's fixed page size (50) combined with sequential (non-mapped) pagination could not scale.",
+    "business_impact": "Order data lag caused fulfillment prioritization logic to work off stale order data during the highest-value sales hour of the quarter.",
+    "resolution": "Convert pagination loop to Airflow dynamic task mapping so pages fetch in parallel; raise page size to Shopify's max (250)."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 17
+    },
+    "incident_id": "INC-014",
+    "expected_rca_summary": "AI AutoRCA should identify: A flash sale drove a 22x order spike within the hour, and the extractor's fixed page size (50) combined with sequential (non-mapped) pagination could not scale.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow Gantt shows single-threaded task occupying full hour with no fan-out",
+    "datadog_metrics": "Datadog orders.api.pages_fetched metric shows 22x normal page count, sequential (non-parallel) call pattern",
+    "confidence_score": 0.88,
+    "resolution": "Convert pagination loop to Airflow dynamic task mapping so pages fetch in parallel; raise page size to Shopify's max (250).",
+    "preventive_action": "Add a pre-emptive scaling trigger tied to the marketing promotions calendar so DAG concurrency increases ahead of known flash-sale windows."
+  }
+}

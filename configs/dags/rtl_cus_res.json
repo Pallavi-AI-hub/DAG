@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 53
+    },
+    "dag_id": "RTL_CUS_RES",
+    "dag_name": "Forecasting in-memory ensemble blend exhausts worker memory",
+    "business_domain": "Customers",
+    "lrj_category": "Resource Exhaustion",
+    "schedule": "0 3 * * 1",
+    "sla": "7h",
+    "priority": "P1",
+    "criticality": "High",
+    "source": "CRM (Salesforce Service Cloud)",
+    "destination": "Snowflake RAW.CUSTOMER"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 606
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_cus"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 607
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "extract_cus",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "resource_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Customers source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 608
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "resource_precheck",
+      "task_type": "PythonOperator (memory/CPU budget estimate)",
+      "upstream_tasks": [
+        "extract_cus"
+      ],
+      "downstream_tasks": [
+        "heavy_inmemory_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Estimates peak resource usage from row-count metadata before compute"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 609
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "heavy_inmemory_transform",
+      "task_type": "PythonOperator (resource requests/limits set)",
+      "upstream_tasks": [
+        "resource_precheck"
+      ],
+      "downstream_tasks": [
+        "memory_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Resource-intensive in-memory computation, historically prone to exhaustion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 610
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "memory_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "heavy_inmemory_transform"
+      ],
+      "downstream_tasks": [
+        "within_budget",
+        "near_exhaustion"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Checks actual peak usage against budget mid-run/post-run"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 611
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "within_budget",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "memory_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: resource usage within safe budget"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 612
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "near_exhaustion",
+      "task_type": "PythonOperator (chunked fallback)",
+      "upstream_tasks": [
+        "memory_check"
+      ],
+      "downstream_tasks": [
+        "chunked_fallback_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: near resource ceiling, reroutes to chunked processing"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 613
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "chunked_fallback_transform",
+      "task_type": "PythonOperator.expand (chunked, dynamic task mapping)",
+      "upstream_tasks": [
+        "near_exhaustion"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Reprocesses in bounded-memory chunks"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 614
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "within_budget"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Customers target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 615
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "chunked_fallback_transform"
+      ],
+      "downstream_tasks": [
+        "datadog_resource_check"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 616
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "datadog_resource_check",
+      "task_type": "PythonOperator (AutoRCA resource-exhaustion hook)",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Logs final resource profile for trend monitoring"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 617
+      },
+      "dag_id": "RTL_CUS_RES",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "datadog_resource_check"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 53
+    },
+    "incident_id": "INC-050",
+    "dag_id": "RTL_CUS_RES",
+    "incident_name": "Forecasting in-memory ensemble blend exhausts worker memory",
+    "category": "Resource Exhaustion",
+    "severity": "Sev-1 (High)",
+    "description": "Resource Exhaustion incident on the Customers pipeline (RTL_CUS_RES): forecasting in-memory ensemble blend exhausts worker memory.",
+    "symptoms": "The weekly forecast ensemble-blend task, running as a single large pandas operation, consistently pegs worker memory at 95-100% and occasionally gets OOM-killed.",
+    "root_cause": "The task loads all SKU-cluster forecasts into a single in-memory DataFrame (regional exclusives expansion pushed this to ~19GB) on a worker sized for 16GB, with no chunking strategy.",
+    "business_impact": "When OOM-killed, the entire weekly forecast cycle must restart from the blend step, costing 2+ hours of reprocessing and risking missing the replenishment planning deadline.",
+    "resolution": "Chunk the blend operation by SKU cluster with dynamic task mapping, each chunk sized to fit comfortably in worker memory; alternatively move to Dask for out-of-core processing."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 53
+    },
+    "incident_id": "INC-050",
+    "expected_rca_summary": "AI AutoRCA should identify: The task loads all SKU-cluster forecasts into a single in-memory DataFrame (regional exclusives expansion pushed this to ~19GB) on a worker sized for 16GB, with no chunking strategy.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task logs show the same failure signature (OOMKilled) recurring across multiple historical runs when SKU count crosses a threshold",
+    "datadog_metrics": "Datadog container.memory.usage sustained above 90% for the task's full duration, spiking to OOMKilled on bad weeks",
+    "confidence_score": 0.88,
+    "resolution": "Chunk the blend operation by SKU cluster with dynamic task mapping, each chunk sized to fit comfortably in worker memory; alternatively move to Dask for out-of-core processing.",
+    "preventive_action": "Add a memory-budget estimation step to the DAG factory that computes expected peak memory from historical row-count-per-byte ratios and rejects unchunked designs above a configurable threshold."
+  }
+}

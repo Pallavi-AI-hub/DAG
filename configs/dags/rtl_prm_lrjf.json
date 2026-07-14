@@ -1,0 +1,254 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 24
+    },
+    "dag_id": "RTL_PRM_LRJF",
+    "dag_name": "Ecommerce catalog sync fails on schema evolution",
+    "business_domain": "Promotions",
+    "lrj_category": "Long Running Job Failure",
+    "schedule": "*/20 * * * *",
+    "sla": "20m",
+    "priority": "P1",
+    "criticality": "High",
+    "source": "Promotion Engine (Kafka topic)",
+    "destination": "Snowflake RAW.PROMOTION"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 279
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_prm"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 280
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "extract_prm",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "checkpoint_1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Promotions source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 281
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "checkpoint_1",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "extract_prm"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state for restartability"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 282
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "heavy_transform_stage1",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_1"
+      ],
+      "downstream_tasks": [
+        "checkpoint_2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 1 of multi-stage transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 283
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "checkpoint_2",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 284
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "heavy_transform_stage2",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_2"
+      ],
+      "downstream_tasks": [
+        "checkpoint_3"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 2 - historically the failure point for this DAG"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 285
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "checkpoint_3",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists final pre-load state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 286
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "checkpoint_3"
+      ],
+      "downstream_tasks": [
+        "notify_teams_success"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Promotions target table/object"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 287
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "notify_teams_success",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Success notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 288
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "on_failure_callback_trigger",
+      "task_type": "PythonOperator (AutoRCA callback)",
+      "upstream_tasks": [
+        "heavy_transform_stage1",
+        "heavy_transform_stage2",
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams_failure"
+      ],
+      "trigger_rule": "one_failed",
+      "dependencies": "Fires AI AutoRCA multi-agent investigation on any task failure"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 289
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "notify_teams_failure",
+      "task_type": "PythonOperator (Teams Adaptive Card + RCA summary)",
+      "upstream_tasks": [
+        "on_failure_callback_trigger"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Failure notification with AutoRCA findings attached"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 290
+      },
+      "dag_id": "RTL_PRM_LRJF",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams_success",
+        "notify_teams_failure"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 24
+    },
+    "incident_id": "INC-021",
+    "dag_id": "RTL_PRM_LRJF",
+    "incident_name": "Ecommerce catalog sync fails on schema evolution",
+    "category": "Long Running Job Failure",
+    "severity": "Sev-1 (High)",
+    "description": "Long Running Job Failure incident on the Promotions pipeline (RTL_PRM_LRJF): ecommerce catalog sync fails on schema evolution.",
+    "symptoms": "Ecommerce catalog sync to Snowflake fails after 2h30m when a new nested JSON field breaks the Parquet schema on write.",
+    "root_cause": "Shopify added a new 'bundle_components' array field to the product payload; the downstream Parquet writer uses a hard-coded schema instead of schema-on-read/evolution-aware writing.",
+    "business_impact": "New bundle products invisible on the ecommerce site until the schema issue is resolved, affecting a live promotional bundle launch.",
+    "resolution": "Switch the Parquet writer to schema-evolution-aware mode (merge schema); add the new field to the Snowflake external table DDL."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 24
+    },
+    "incident_id": "INC-021",
+    "expected_rca_summary": "AI AutoRCA should identify: Shopify added a new 'bundle_components' array field to the product payload; the downstream Parquet writer uses a hard-coded schema instead of schema-on-read/evolution-aware writing.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task fails with pyarrow.lib.ArrowInvalid schema mismatch error",
+    "datadog_metrics": "Datadog data-quality schema_drift_detected custom metric fires",
+    "confidence_score": 0.84,
+    "resolution": "Switch the Parquet writer to schema-evolution-aware mode (merge schema); add the new field to the Snowflake external table DDL.",
+    "preventive_action": "Add automated schema-diff detection on the source API contract as a pre-ingestion task, routing any diff to a review queue before the load task runs."
+  }
+}

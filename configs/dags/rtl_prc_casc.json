@@ -1,0 +1,274 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 36
+    },
+    "dag_id": "RTL_PRC_CASC",
+    "dag_name": "Customers identity resolution delay cascades into Marketing segmentation",
+    "business_domain": "Pricing",
+    "lrj_category": "Cascading Delay",
+    "schedule": "0 9 * * *",
+    "sla": "1h (from upstream completion)",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "Pricing Engine (Revionics)",
+    "destination": "Snowflake RAW.PRICING"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 427
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 428
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "sensor_upstream_a",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain A DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 429
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "sensor_upstream_b",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain B DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 430
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "sensor_upstream_c",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain C DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 431
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "fan_in_join",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "downstream_tasks": [
+        "consolidate_prc"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Requires all 3 upstream domains to have completed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 432
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "consolidate_prc",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "fan_in_join"
+      ],
+      "downstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Consolidates Pricing data across upstream domains"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 433
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "cascade_delay_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "consolidate_prc"
+      ],
+      "downstream_tasks": [
+        "on_time",
+        "cascaded_delay"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares actual start time to expected upstream-completion time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 434
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "on_time",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: no material cascade delay detected"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 435
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "cascaded_delay",
+      "task_type": "PythonOperator (AutoRCA cascade-RCA hook)",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "notify_cascade_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: cascade delay detected, triggers cross-DAG AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 436
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "notify_cascade_alert",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "cascaded_delay"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Notifies stakeholders of cascade impact with root-cause chain"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 437
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "on_time",
+        "notify_cascade_alert"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Loads Pricing consolidated target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 438
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Final join"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 439
+      },
+      "dag_id": "RTL_PRC_CASC",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 36
+    },
+    "incident_id": "INC-033",
+    "dag_id": "RTL_PRC_CASC",
+    "incident_name": "Customers identity resolution delay cascades into Marketing segmentation",
+    "category": "Cascading Delay",
+    "severity": "Sev-2 (High)",
+    "description": "Cascading Delay incident on the Pricing pipeline (RTL_PRC_CASC): customers identity resolution delay cascades into Marketing segmentation.",
+    "symptoms": "Marketing daily audience-segmentation DAG, dependent on Customer 360 identity resolution, starts 90 minutes late and misses its own campaign-trigger window.",
+    "root_cause": "Customer 360's identity merge (see LRJ Failure catalogue) failed and had to be manually rerun, and Marketing's segmentation DAG waits on a fixed cross-DAG sensor with no manual-rerun-aware retry logic.",
+    "business_impact": "A time-sensitive promotional email campaign misses its optimal send window, reducing projected campaign engagement.",
+    "resolution": "Add a manual-rerun-aware sensor mode that re-evaluates on both scheduled and ad-hoc upstream completions; add a campaign-critical fast-path using cached prior-day segments as fallback."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 36
+    },
+    "incident_id": "INC-033",
+    "expected_rca_summary": "AI AutoRCA should identify: Customer 360's identity merge (see LRJ Failure catalogue) failed and had to be manually rerun, and Marketing's segmentation DAG waits on a fixed cross-DAG sensor with no manual-rerun-aware retry logic.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, cross-DAG lineage/dependency graph, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow cross-DAG sensor log shows extended wait matching the manual-rerun timestamp of the upstream DAG",
+    "datadog_metrics": "Datadog shows Marketing DAG start-time variance directly correlated to Customer 360 DAG completion variance over trailing 30 days",
+    "confidence_score": 0.82,
+    "resolution": "Add a manual-rerun-aware sensor mode that re-evaluates on both scheduled and ad-hoc upstream completions; add a campaign-critical fast-path using cached prior-day segments as fallback.",
+    "preventive_action": "Flag launch/campaign-critical downstream DAGs in the metadata model so cascade monitoring applies tighter alert thresholds to them specifically."
+  }
+}

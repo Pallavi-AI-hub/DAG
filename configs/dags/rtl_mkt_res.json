@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 59
+    },
+    "dag_id": "RTL_MKT_RES",
+    "dag_name": "Logistics route-optimization solver exhausts memory during peak shipping",
+    "business_domain": "Marketing",
+    "lrj_category": "Resource Exhaustion",
+    "schedule": "0 4 * * *",
+    "sla": "3h",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "Ad Platform APIs (Meta/Google Ads)",
+    "destination": "Snowflake RAW.MARKETING"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 678
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_mkt"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 679
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "extract_mkt",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "resource_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Marketing source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 680
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "resource_precheck",
+      "task_type": "PythonOperator (memory/CPU budget estimate)",
+      "upstream_tasks": [
+        "extract_mkt"
+      ],
+      "downstream_tasks": [
+        "heavy_inmemory_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Estimates peak resource usage from row-count metadata before compute"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 681
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "heavy_inmemory_transform",
+      "task_type": "PythonOperator (resource requests/limits set)",
+      "upstream_tasks": [
+        "resource_precheck"
+      ],
+      "downstream_tasks": [
+        "memory_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Resource-intensive in-memory computation, historically prone to exhaustion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 682
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "memory_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "heavy_inmemory_transform"
+      ],
+      "downstream_tasks": [
+        "within_budget",
+        "near_exhaustion"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Checks actual peak usage against budget mid-run/post-run"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 683
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "within_budget",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "memory_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: resource usage within safe budget"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 684
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "near_exhaustion",
+      "task_type": "PythonOperator (chunked fallback)",
+      "upstream_tasks": [
+        "memory_check"
+      ],
+      "downstream_tasks": [
+        "chunked_fallback_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: near resource ceiling, reroutes to chunked processing"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 685
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "chunked_fallback_transform",
+      "task_type": "PythonOperator.expand (chunked, dynamic task mapping)",
+      "upstream_tasks": [
+        "near_exhaustion"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Reprocesses in bounded-memory chunks"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 686
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "within_budget"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Marketing target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 687
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "chunked_fallback_transform"
+      ],
+      "downstream_tasks": [
+        "datadog_resource_check"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 688
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "datadog_resource_check",
+      "task_type": "PythonOperator (AutoRCA resource-exhaustion hook)",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Logs final resource profile for trend monitoring"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 689
+      },
+      "dag_id": "RTL_MKT_RES",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "datadog_resource_check"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 59
+    },
+    "incident_id": "INC-056",
+    "dag_id": "RTL_MKT_RES",
+    "incident_name": "Logistics route-optimization solver exhausts memory during peak shipping",
+    "category": "Resource Exhaustion",
+    "severity": "Sev-2 (High)",
+    "description": "Resource Exhaustion incident on the Marketing pipeline (RTL_MKT_RES): logistics route-optimization solver exhausts memory during peak shipping.",
+    "symptoms": "The daily route-optimization solver for last-mile delivery exhausts memory during peak shipping weeks (roughly 4 weeks/year), a recurring but previously unaddressed pattern.",
+    "root_cause": "The solver's in-memory distance-matrix representation grows quadratically with stop count, and peak-week stop counts (holiday shipping) are roughly 2.5x average, pushing the quadratic memory requirement well past the node's capacity.",
+    "business_impact": "When the solver fails, routes default to a simpler nearest-neighbor heuristic that produces measurably less efficient routes, increasing last-mile delivery cost and slightly increasing average delivery time during the year's most delivery-sensitive weeks.",
+    "resolution": "Switch to a sparse distance-matrix representation (only nearby stops, not full pairwise) for high-stop-count runs; pre-provision higher-memory nodes for the known 4 peak weeks per year."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 59
+    },
+    "incident_id": "INC-056",
+    "expected_rca_summary": "AI AutoRCA should identify: The solver's in-memory distance-matrix representation grows quadratically with stop count, and peak-week stop counts (holiday shipping) are roughly 2.5x average, pushing the quadratic memory requirement well past the node's capacity.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task failure logs (during peak weeks only) show OOMKilled, with a fallback DAG branch confirming heuristic-mode activation",
+    "datadog_metrics": "Datadog container.memory.usage shows a clear quadratic-shaped trend against the stop_count custom metric across the year",
+    "confidence_score": 0.81,
+    "resolution": "Switch to a sparse distance-matrix representation (only nearby stops, not full pairwise) for high-stop-count runs; pre-provision higher-memory nodes for the known 4 peak weeks per year.",
+    "preventive_action": "Add a documented seasonal resource-scaling calendar to the metadata model (mirroring the Expected-LRJ pattern) specifically for known quadratic/super-linear-scaling algorithms."
+  }
+}

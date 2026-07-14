@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 25
+    },
+    "dag_id": "RTL_SUP_STUCK",
+    "dag_name": "Suppliers vendor-portal sensor hangs indefinitely",
+    "business_domain": "Suppliers",
+    "lrj_category": "Stuck/Hung Job",
+    "schedule": "0 5 * * *",
+    "sla": "4h",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "Vendor SFTP (EDI 850/856)",
+    "destination": "Snowflake RAW.SUPPLIER"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 291
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 292
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "connectivity_precheck",
+      "task_type": "PythonOperator (handshake/reachability check)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "external_event_sensor"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates upstream reachability before entering poke mode"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 293
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "external_event_sensor",
+      "task_type": "Sensor (reschedule mode, bounded timeout)",
+      "upstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "downstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on external file/event/webhook signal from Suppliers source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 294
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "branch_on_sensor_result",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "external_event_sensor"
+      ],
+      "downstream_tasks": [
+        "arrived",
+        "timed_out"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether sensor resolved or timed out"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 295
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "arrived",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "heavy_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: signal arrived in time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 296
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "timed_out",
+      "task_type": "PythonOperator (fallback trigger)",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: sensor exceeded bounded timeout"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 297
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "fallback_degraded_path",
+      "task_type": "PythonOperator (degraded-mode processing)",
+      "upstream_tasks": [
+        "timed_out"
+      ],
+      "downstream_tasks": [
+        "notify_stuck_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Processes with prior-period data / partial data as fallback"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 298
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "heavy_transform",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "arrived"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Main transform once signal received"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 299
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "heavy_transform"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Suppliers target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 300
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "notify_stuck_alert",
+      "task_type": "PythonOperator (Teams + AutoRCA hang-detection hook)",
+      "upstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Alerts on-call and triggers AutoRCA hang analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 301
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "notify_stuck_alert"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 302
+      },
+      "dag_id": "RTL_SUP_STUCK",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 25
+    },
+    "incident_id": "INC-022",
+    "dag_id": "RTL_SUP_STUCK",
+    "incident_name": "Suppliers vendor-portal sensor hangs indefinitely",
+    "category": "Stuck/Hung Job",
+    "severity": "Sev-1 (Critical)",
+    "description": "Stuck/Hung Job incident on the Suppliers pipeline (RTL_SUP_STUCK): suppliers vendor-portal sensor hangs indefinitely.",
+    "symptoms": "ExternalTaskSensor waiting on the vendor portal's 'file ready' flag has been in poke state for 14+ hours with no timeout configured.",
+    "root_cause": "The vendor's upload automation silently failed with no error surfaced to the portal, and the sensor was configured with mode='poke', timeout=None, so Airflow keeps a worker slot occupied indefinitely.",
+    "business_impact": "Downstream supplier onboarding and PO matching for the day never runs; 40+ purchase orders unmatched, blocking receiving.",
+    "resolution": "Kill the stuck task instance, manually trigger the vendor to re-upload; add a bounded timeout (e.g., 4h) with soft_fail=True and an escalation notification."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 25
+    },
+    "incident_id": "INC-022",
+    "expected_rca_summary": "AI AutoRCA should identify: The vendor's upload automation silently failed with no error surfaced to the portal, and the sensor was configured with mode='poke', timeout=None, so Airflow keeps a worker slot occupied indefinitely.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task state remains 'running'/'up_for_reschedule' far past historical p99 duration",
+    "datadog_metrics": "Datadog airflow.task.duration for the sensor task shows an unbounded upward line with no ceiling",
+    "confidence_score": 0.93,
+    "resolution": "Kill the stuck task instance, manually trigger the vendor to re-upload; add a bounded timeout (e.g., 4h) with soft_fail=True and an escalation notification.",
+    "preventive_action": "Standardize all external sensors in the metadata model to require a mandatory timeout field; reject DAG registration without one."
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 49
+    },
+    "dag_id": "RTL_PRD_QUEUE",
+    "dag_name": "Suppliers vendor-document OCR queue congestion",
+    "business_domain": "Product Master",
+    "lrj_category": "Queue Congestion",
+    "schedule": "0 2 * * *",
+    "sla": "4h",
+    "priority": "P2",
+    "criticality": "Medium",
+    "source": "SAP ERP (Material Master)",
+    "destination": "Snowflake RAW.PRODUCT"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 570
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 571
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "get_mapping_keys",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "process_unit"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the Product Master entity list (stores/zones/segments/vendors) to fan out over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 572
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "process_unit",
+      "task_type": "PythonOperator.expand (dynamic task mapping, dedicated pool)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "fanout_pool",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per entity, bound to a dedicated Airflow pool"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 573
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "pool_saturation_monitor",
+      "task_type": "PythonOperator (Datadog pool.open_slots check)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Runs in parallel with process_unit, watches shared pool capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 574
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "aggregate_results",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "process_unit",
+        "pool_saturation_monitor"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of all mapped instances plus the monitor"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 575
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Product Master target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 576
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "datadog_queue_depth_check",
+      "task_type": "PythonOperator (AutoRCA congestion hook)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether queue congestion impacted this or sibling DAGs"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 577
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Run summary notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 578
+      },
+      "dag_id": "RTL_PRD_QUEUE",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 49
+    },
+    "incident_id": "INC-046",
+    "dag_id": "RTL_PRD_QUEUE",
+    "incident_name": "Suppliers vendor-document OCR queue congestion",
+    "category": "Queue Congestion",
+    "severity": "Sev-2 (Medium)",
+    "description": "Queue Congestion incident on the Product Master pipeline (RTL_PRD_QUEUE): suppliers vendor-document OCR queue congestion.",
+    "symptoms": "OCR processing tasks mapped per scanned vendor invoice (up to 1,100/day) queued behind a GPU-limited worker pool for 3+ hours during month-end.",
+    "root_cause": "The GPU-backed OCR worker pool has only 4 slots, sized for typical daily volume of ~300 invoices, but month-end invoice volume spikes to 1,100+ without any elastic scaling of the pool.",
+    "business_impact": "Vendor invoice processing backlog delays accounts-payable 3-way match, risking missed early-payment-discount windows worth an estimated $40K/month if consistently missed.",
+    "resolution": "Add autoscaling to the GPU worker pool tied to queue depth; batch smaller invoices into a single OCR call where the document format allows it to reduce per-call overhead."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 49
+    },
+    "incident_id": "INC-046",
+    "expected_rca_summary": "AI AutoRCA should identify: The GPU-backed OCR worker pool has only 4 slots, sized for typical daily volume of ~300 invoices, but month-end invoice volume spikes to 1,100+ without any elastic scaling of the pool.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow shows OCR task instances queued state duration far exceeding their eventual execution duration",
+    "datadog_metrics": "Datadog gpu_pool.queue_depth climbed steadily through month-end days, correlated with the invoice volume metric",
+    "confidence_score": 0.83,
+    "resolution": "Add autoscaling to the GPU worker pool tied to queue depth; batch smaller invoices into a single OCR call where the document format allows it to reduce per-call overhead.",
+    "preventive_action": "Add a 'volume seasonality profile' field to the metadata model so month-end-heavy DAGs get proactive pool scaling ahead of known high-volume periods."
+  }
+}

@@ -1,0 +1,274 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 38
+    },
+    "dag_id": "RTL_CUS_CASC",
+    "dag_name": "Logistics carrier data delay cascades into Returns RMA label generation",
+    "business_domain": "Customers",
+    "lrj_category": "Cascading Delay",
+    "schedule": "0 5 * * *",
+    "sla": "2h (from upstream completion)",
+    "priority": "P2",
+    "criticality": "Medium",
+    "source": "CRM (Salesforce Service Cloud)",
+    "destination": "Snowflake RAW.CUSTOMER"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 453
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 454
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "sensor_upstream_a",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain A DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 455
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "sensor_upstream_b",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain B DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 456
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "sensor_upstream_c",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain C DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 457
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "fan_in_join",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "downstream_tasks": [
+        "consolidate_cus"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Requires all 3 upstream domains to have completed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 458
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "consolidate_cus",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "fan_in_join"
+      ],
+      "downstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Consolidates Customers data across upstream domains"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 459
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "cascade_delay_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "consolidate_cus"
+      ],
+      "downstream_tasks": [
+        "on_time",
+        "cascaded_delay"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares actual start time to expected upstream-completion time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 460
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "on_time",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: no material cascade delay detected"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 461
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "cascaded_delay",
+      "task_type": "PythonOperator (AutoRCA cascade-RCA hook)",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "notify_cascade_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: cascade delay detected, triggers cross-DAG AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 462
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "notify_cascade_alert",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "cascaded_delay"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Notifies stakeholders of cascade impact with root-cause chain"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 463
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "on_time",
+        "notify_cascade_alert"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Loads Customers consolidated target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 464
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Final join"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 465
+      },
+      "dag_id": "RTL_CUS_CASC",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 38
+    },
+    "incident_id": "INC-035",
+    "dag_id": "RTL_CUS_CASC",
+    "incident_name": "Logistics carrier data delay cascades into Returns RMA label generation",
+    "category": "Cascading Delay",
+    "severity": "Sev-2 (Medium)",
+    "description": "Cascading Delay incident on the Customers pipeline (RTL_CUS_CASC): logistics carrier data delay cascades into Returns RMA label generation.",
+    "symptoms": "Returns RMA label-generation DAG, which needs carrier rate/service data from the Logistics domain, is delayed 3h.",
+    "root_cause": "Logistics' carrier rate-shopping DAG hit an unexpectedly long run (see Unexpected LRJ catalogue) due to FedEx API pagination drift, and Returns' label generation has a hard dependency with no cached-rate fallback.",
+    "business_impact": "Customers awaiting return labels experience a delayed email, increasing return-related customer service contact volume.",
+    "resolution": "Cache the prior successful carrier-rate snapshot and allow Returns to fall back to it (with a staleness flag) if the live dependency exceeds a grace period."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 38
+    },
+    "incident_id": "INC-035",
+    "expected_rca_summary": "AI AutoRCA should identify: Logistics' carrier rate-shopping DAG hit an unexpectedly long run (see Unexpected LRJ catalogue) due to FedEx API pagination drift, and Returns' label generation has a hard dependency with no cached-rate fallback.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, cross-DAG lineage/dependency graph, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow shows Returns DAG's ExternalTaskSensor poke count and duration far above its historical baseline",
+    "datadog_metrics": "Datadog cross-DAG delay chain view shows Logistics anomaly directly preceding Returns delay",
+    "confidence_score": 0.8,
+    "resolution": "Cache the prior successful carrier-rate snapshot and allow Returns to fall back to it (with a staleness flag) if the live dependency exceeds a grace period.",
+    "preventive_action": "Add cached-fallback-availability as a standard architecture pattern option in the metadata model for any DAG depending on volatile third-party rate/pricing data."
+  }
+}

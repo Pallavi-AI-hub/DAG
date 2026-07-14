@@ -1,0 +1,314 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 16
+    },
+    "dag_id": "RTL_STS_ULRJ",
+    "dag_name": "Store Sales POS Kafka daily rollup unexpectedly long",
+    "business_domain": "Store Sales",
+    "lrj_category": "Unexpected Long Running Job",
+    "schedule": "15 6 * * *",
+    "sla": "30m",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "POS Kafka Stream",
+    "destination": "Snowflake RAW.STORE_SALES"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 177
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 178
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "extract_p1",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 179
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "extract_p2",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 180
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "extract_p3",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 181
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "extract_p4",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 182
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "volume_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "downstream_tasks": [
+        "normal_volume",
+        "high_volume_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares extracted row count to historical baseline"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 183
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "normal_volume",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_standard"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume within normal range"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 184
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "high_volume_path",
+      "task_type": "PythonOperator (scale_workers)",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_scaled"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume anomaly, requests additional worker capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 185
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "transform_standard",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "normal_volume"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Standard-capacity transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 186
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "transform_scaled",
+      "task_type": "PythonOperator (dynamic task mapping)",
+      "upstream_tasks": [
+        "high_volume_path"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Scaled-capacity transform for volume anomaly"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 187
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "join_after_transform",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "transform_standard",
+        "transform_scaled"
+      ],
+      "downstream_tasks": [
+        "load_snowflake_sts"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in regardless of path taken"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 188
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "load_snowflake_sts",
+      "task_type": "SnowflakeOperator (MERGE)",
+      "upstream_tasks": [
+        "join_after_transform"
+      ],
+      "downstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Store Sales RAW/staging table"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 189
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "ai_autorca_duration_check",
+      "task_type": "PythonOperator (AutoRCA anomaly hook)",
+      "upstream_tasks": [
+        "load_snowflake_sts"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Compares actual vs expected duration, triggers AutoRCA on breach"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 190
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Sends run summary/alert card"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 191
+      },
+      "dag_id": "RTL_STS_ULRJ",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 16
+    },
+    "incident_id": "INC-013",
+    "dag_id": "RTL_STS_ULRJ",
+    "incident_name": "Store Sales POS Kafka daily rollup unexpectedly long",
+    "category": "Unexpected Long Running Job",
+    "severity": "Sev-2 (High)",
+    "description": "Unexpected Long Running Job incident on the Store Sales pipeline (RTL_STS_ULRJ): store Sales POS Kafka daily rollup unexpectedly long.",
+    "symptoms": "Daily POS sales rollup from Kafka went from 20min to 1h45m across 450 stores.",
+    "root_cause": "A firmware update pushed to 90 POS terminals began emitting duplicate heartbeat events, inflating the topic partition size the consumer must scan by ~6x.",
+    "business_impact": "Delayed store performance dashboards for regional managers' morning huddles.",
+    "resolution": "Add dedup filter keyed on transaction_id + terminal_id + timestamp at the Kafka consumer level; roll back or patch firmware."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 16
+    },
+    "incident_id": "INC-013",
+    "expected_rca_summary": "AI AutoRCA should identify: A firmware update pushed to 90 POS terminals began emitting duplicate heartbeat events, inflating the topic partition size the consumer must scan by ~6x.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task logs show 6x expected message count for known store count",
+    "datadog_metrics": "Datadog Kafka consumer lag and records-consumed both spiked together (unusual - normally lag alone spikes)",
+    "confidence_score": 0.85,
+    "resolution": "Add dedup filter keyed on transaction_id + terminal_id + timestamp at the Kafka consumer level; roll back or patch firmware.",
+    "preventive_action": "Add a Datadog monitor on kafka.consumer.records_consumed vs expected_transaction_count ratio to flag duplicate-emission drift."
+  }
+}

@@ -1,0 +1,296 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 4
+    },
+    "dag_id": "RTL_PRD_ELRJ",
+    "dag_name": "Product Master full catalog sync approaching SLA ceiling",
+    "business_domain": "Product Master",
+    "lrj_category": "Expected Long Running Job",
+    "schedule": "0 2 * * *",
+    "sla": "4h",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "SAP ERP (Material Master)",
+    "destination": "Snowflake RAW.PRODUCT"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 4
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_prd_source"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 5
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "extract_prd_source",
+      "task_type": "PythonOperator (API/DB extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "validate_schema"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Pulls from Product Master source system"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 6
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "validate_schema",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "extract_prd_source"
+      ],
+      "downstream_tasks": [
+        "schema_ok",
+        "schema_drift_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates inbound schema against contract"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 7
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "schema_ok",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "validate_schema"
+      ],
+      "downstream_tasks": [
+        "transform_p1",
+        "transform_p2",
+        "transform_p3"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: schema passed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 8
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "schema_drift_alert",
+      "task_type": "PythonOperator (Teams notify)",
+      "upstream_tasks": [
+        "validate_schema"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: schema drift detected, non-blocking alert"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 9
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "transform_p1",
+      "task_type": "PythonOperator (partition 1)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 10
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "transform_p2",
+      "task_type": "PythonOperator (partition 2)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 11
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "transform_p3",
+      "task_type": "PythonOperator (partition 3)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 12
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "join_transform",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "transform_p1",
+        "transform_p2",
+        "transform_p3",
+        "schema_drift_alert"
+      ],
+      "downstream_tasks": [
+        "load_snowflake_prd"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of parallel partitions"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 13
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "load_snowflake_prd",
+      "task_type": "SnowflakeOperator (MERGE)",
+      "upstream_tasks": [
+        "join_transform"
+      ],
+      "downstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Product Master RAW/staging table"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 14
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "sla_buffer_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "load_snowflake_prd"
+      ],
+      "downstream_tasks": [
+        "within_sla",
+        "near_sla_warning"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares run duration to SLA ratio threshold (85%)"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 15
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "within_sla",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: comfortably within SLA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 16
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "near_sla_warning",
+      "task_type": "PythonOperator (Datadog custom metric + Teams)",
+      "upstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: near SLA ceiling, early warning to AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 17
+      },
+      "dag_id": "RTL_PRD_ELRJ",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "within_sla",
+        "near_sla_warning"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 4
+    },
+    "incident_id": "INC-001",
+    "dag_id": "RTL_PRD_ELRJ",
+    "incident_name": "Product Master full catalog sync approaching SLA ceiling",
+    "category": "Expected Long Running Job",
+    "severity": "Sev-2 (High)",
+    "description": "Expected Long Running Job incident on the Product Master pipeline (RTL_PRD_ELRJ): product Master full catalog sync approaching SLA ceiling.",
+    "symptoms": "Task duration trending 92-97% of 4hr SLA for 6 consecutive runs; no failure, but buffer eroding.",
+    "root_cause": "SAP Material Master row count grew 18% QoQ (new SKU onboarding for FW26 line) without a corresponding increase in extraction parallelism.",
+    "business_impact": "No outage yet, but next volume bump will breach SLA, delaying downstream pricing and ecommerce catalog refresh.",
+    "resolution": "Increase extraction parallelism from 4 to 8 partitions keyed on material group; move to incremental CDC extraction."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 4
+    },
+    "incident_id": "INC-001",
+    "expected_rca_summary": "AI AutoRCA should identify: SAP Material Master row count grew 18% QoQ (new SKU onboarding for FW26 line) without a corresponding increase in extraction parallelism.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Task logs show steady per-batch throughput decline correlated to row count, not error stack traces",
+    "datadog_metrics": "airflow.dag.duration trending upward across dagrun_history, no anomaly spike (gradual)",
+    "confidence_score": 0.91,
+    "resolution": "Increase extraction parallelism from 4 to 8 partitions keyed on material group; move to incremental CDC extraction.",
+    "preventive_action": "Add a Datadog monitor on duration-vs-SLA ratio with a 85% early warning threshold, alert AI AutoRCA proactively before breach."
+  }
+}

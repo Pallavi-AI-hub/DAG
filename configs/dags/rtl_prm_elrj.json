@@ -1,0 +1,296 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 9
+    },
+    "dag_id": "RTL_PRM_ELRJ",
+    "dag_name": "Promotions Kafka backfill historical load long by design",
+    "business_domain": "Promotions",
+    "lrj_category": "Expected Long Running Job",
+    "schedule": "0 0 1 */3 *",
+    "sla": "10h",
+    "priority": "P3",
+    "criticality": "Low",
+    "source": "Promotion Engine (Kafka topic)",
+    "destination": "Snowflake RAW.PROMOTION"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 74
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_prm_source"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 75
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "extract_prm_source",
+      "task_type": "PythonOperator (API/DB extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "validate_schema"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Pulls from Promotions source system"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 76
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "validate_schema",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "extract_prm_source"
+      ],
+      "downstream_tasks": [
+        "schema_ok",
+        "schema_drift_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates inbound schema against contract"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 77
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "schema_ok",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "validate_schema"
+      ],
+      "downstream_tasks": [
+        "transform_p1",
+        "transform_p2",
+        "transform_p3"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: schema passed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 78
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "schema_drift_alert",
+      "task_type": "PythonOperator (Teams notify)",
+      "upstream_tasks": [
+        "validate_schema"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: schema drift detected, non-blocking alert"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 79
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "transform_p1",
+      "task_type": "PythonOperator (partition 1)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 80
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "transform_p2",
+      "task_type": "PythonOperator (partition 2)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 81
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "transform_p3",
+      "task_type": "PythonOperator (partition 3)",
+      "upstream_tasks": [
+        "schema_ok"
+      ],
+      "downstream_tasks": [
+        "join_transform"
+      ],
+      "parallel_group": "transform_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel partition transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 82
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "join_transform",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "transform_p1",
+        "transform_p2",
+        "transform_p3",
+        "schema_drift_alert"
+      ],
+      "downstream_tasks": [
+        "load_snowflake_prm"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of parallel partitions"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 83
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "load_snowflake_prm",
+      "task_type": "SnowflakeOperator (MERGE)",
+      "upstream_tasks": [
+        "join_transform"
+      ],
+      "downstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Promotions RAW/staging table"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 84
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "sla_buffer_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "load_snowflake_prm"
+      ],
+      "downstream_tasks": [
+        "within_sla",
+        "near_sla_warning"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares run duration to SLA ratio threshold (85%)"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 85
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "within_sla",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: comfortably within SLA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 86
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "near_sla_warning",
+      "task_type": "PythonOperator (Datadog custom metric + Teams)",
+      "upstream_tasks": [
+        "sla_buffer_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: near SLA ceiling, early warning to AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 87
+      },
+      "dag_id": "RTL_PRM_ELRJ",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "within_sla",
+        "near_sla_warning"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 9
+    },
+    "incident_id": "INC-006",
+    "dag_id": "RTL_PRM_ELRJ",
+    "incident_name": "Promotions Kafka backfill historical load long by design",
+    "category": "Expected Long Running Job",
+    "severity": "Sev-3 (Low)",
+    "description": "Expected Long Running Job incident on the Promotions pipeline (RTL_PRM_ELRJ): promotions Kafka backfill historical load long by design.",
+    "symptoms": "Quarterly promotions historical backfill DAG runs 8-9h consistently, matching its documented long-batch classification.",
+    "root_cause": "Backfill reprocesses a full quarter of promotion events from Kafka compacted topic; volume is inherently large and one-time per quarter.",
+    "business_impact": "None; scheduled during a maintenance window with no downstream dependency until completion.",
+    "resolution": "N/A - operating as designed."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 9
+    },
+    "incident_id": "INC-006",
+    "expected_rca_summary": "AI AutoRCA should identify: Backfill reprocesses a full quarter of promotion events from Kafka compacted topic; volume is inherently large and one-time per quarter.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics",
+    "airflow_logs": "Airflow DAG tagged is_expected_long_running=true in metadata, suppressing SLA-miss alerts appropriately",
+    "datadog_metrics": "Datadog shows duration within historical band for backfill-tagged DAGs",
+    "confidence_score": 0.9,
+    "resolution": "N/A - operating as designed.",
+    "preventive_action": "Continue publishing expected-duration baselines to the metadata model so AutoRCA does not false-positive this DAG as anomalous."
+  }
+}

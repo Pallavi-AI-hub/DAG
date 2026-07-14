@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 2
+    },
+    "dag_id": "TEST_DAG_1",
+    "dag_name": "Synthetic test DAG",
+    "business_domain": "Store Sales",
+    "lrj_category": "Queue Congestion",
+    "schedule": "*/10 * * * *",
+    "sla": "20m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "POS Kafka Stream",
+    "destination": "Snowflake RAW.STORE_SALES"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 3
+      },
+      "dag_id": "TEST_DAG_1",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": ["process"],
+      "trigger_rule": "all_success"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 4
+      },
+      "dag_id": "TEST_DAG_1",
+      "task_name": "process",
+      "task_type": "PythonOperator",
+      "upstream_tasks": ["start"],
+      "downstream_tasks": ["end"],
+      "trigger_rule": "all_success"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 5
+      },
+      "dag_id": "TEST_DAG_1",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": ["process"],
+      "downstream_tasks": [],
+      "trigger_rule": "all_success"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 2
+    },
+    "incident_id": "INC-999",
+    "dag_id": "TEST_DAG_1",
+    "incident_name": "Synthetic test incident",
+    "category": "Queue Congestion",
+    "severity": "Sev-1 (Critical)",
+    "description": "Test incident description.",
+    "symptoms": "Test symptoms.",
+    "root_cause": "Test root cause.",
+    "business_impact": "Test business impact.",
+    "resolution": "Test resolution."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 2
+    },
+    "incident_id": "INC-999",
+    "expected_rca_summary": "Test RCA summary.",
+    "evidence_required": "Logs",
+    "airflow_logs": "Queue length",
+    "datadog_metrics": "open_slots",
+    "confidence_score": 0.95,
+    "resolution": "Test resolution.",
+    "preventive_action": "None"
+  }
+}

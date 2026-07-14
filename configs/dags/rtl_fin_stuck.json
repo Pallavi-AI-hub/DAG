@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 28
+    },
+    "dag_id": "RTL_FIN_STUCK",
+    "dag_name": "Store Sales end-of-day Postgres lock wait hangs",
+    "business_domain": "Finance",
+    "lrj_category": "Stuck/Hung Job",
+    "schedule": "30 22 * * *",
+    "sla": "45m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "ERP GL (SAP FI/CO)",
+    "destination": "Snowflake RAW.FINANCE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 327
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 328
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "connectivity_precheck",
+      "task_type": "PythonOperator (handshake/reachability check)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "external_event_sensor"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates upstream reachability before entering poke mode"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 329
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "external_event_sensor",
+      "task_type": "Sensor (reschedule mode, bounded timeout)",
+      "upstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "downstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on external file/event/webhook signal from Finance source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 330
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "branch_on_sensor_result",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "external_event_sensor"
+      ],
+      "downstream_tasks": [
+        "arrived",
+        "timed_out"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether sensor resolved or timed out"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 331
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "arrived",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "heavy_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: signal arrived in time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 332
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "timed_out",
+      "task_type": "PythonOperator (fallback trigger)",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: sensor exceeded bounded timeout"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 333
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "fallback_degraded_path",
+      "task_type": "PythonOperator (degraded-mode processing)",
+      "upstream_tasks": [
+        "timed_out"
+      ],
+      "downstream_tasks": [
+        "notify_stuck_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Processes with prior-period data / partial data as fallback"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 334
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "heavy_transform",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "arrived"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Main transform once signal received"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 335
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "heavy_transform"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Finance target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 336
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "notify_stuck_alert",
+      "task_type": "PythonOperator (Teams + AutoRCA hang-detection hook)",
+      "upstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Alerts on-call and triggers AutoRCA hang analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 337
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "notify_stuck_alert"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 338
+      },
+      "dag_id": "RTL_FIN_STUCK",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 28
+    },
+    "incident_id": "INC-025",
+    "dag_id": "RTL_FIN_STUCK",
+    "incident_name": "Store Sales end-of-day Postgres lock wait hangs",
+    "category": "Stuck/Hung Job",
+    "severity": "Sev-1 (Critical)",
+    "description": "Stuck/Hung Job incident on the Finance pipeline (RTL_FIN_STUCK): store Sales end-of-day Postgres lock wait hangs.",
+    "symptoms": "The end-of-day sales close task has been in a Postgres lock-wait state for 7 hours against a 20-minute typical runtime.",
+    "root_cause": "An ad-hoc analyst query against the same table was left open in an idle-in-transaction state, holding an ACCESS SHARE lock that blocks the close task's ACCESS EXCLUSIVE lock request.",
+    "business_impact": "Store financial close cannot finalize; finance cannot post daily sales journal entries.",
+    "resolution": "Terminate the blocking idle-in-transaction session; add statement_timeout and idle_in_transaction_session_timeout at the database role level."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 28
+    },
+    "incident_id": "INC-025",
+    "expected_rca_summary": "AI AutoRCA should identify: An ad-hoc analyst query against the same table was left open in an idle-in-transaction state, holding an ACCESS SHARE lock that blocks the close task's ACCESS EXCLUSIVE lock request.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task log shows no progress; pg_stat_activity (pulled by AutoRCA cpu_agent) shows lock wait_event",
+    "datadog_metrics": "Datadog postgres.locks.waiting metric elevated and static (not resolving) for 7 hours",
+    "confidence_score": 0.88,
+    "resolution": "Terminate the blocking idle-in-transaction session; add statement_timeout and idle_in_transaction_session_timeout at the database role level.",
+    "preventive_action": "Add a Datadog monitor on pg_locks wait chains exceeding 15 minutes, wired into AutoRCA to auto-identify and flag the blocking session."
+  }
+}

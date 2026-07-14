@@ -1,0 +1,314 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 11
+    },
+    "dag_id": "RTL_LOG_ULRJ",
+    "dag_name": "Logistics carrier rate-shopping job duration spike",
+    "business_domain": "Logistics",
+    "lrj_category": "Unexpected Long Running Job",
+    "schedule": "*/30 6-20 * * *",
+    "sla": "45m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "Carrier REST API (FedEx/UPS)",
+    "destination": "Snowflake RAW.LOGISTICS"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 102
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 103
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "extract_p1",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 104
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "extract_p2",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 105
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "extract_p3",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 106
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "extract_p4",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 107
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "volume_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "downstream_tasks": [
+        "normal_volume",
+        "high_volume_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares extracted row count to historical baseline"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 108
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "normal_volume",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_standard"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume within normal range"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 109
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "high_volume_path",
+      "task_type": "PythonOperator (scale_workers)",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_scaled"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume anomaly, requests additional worker capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 110
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "transform_standard",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "normal_volume"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Standard-capacity transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 111
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "transform_scaled",
+      "task_type": "PythonOperator (dynamic task mapping)",
+      "upstream_tasks": [
+        "high_volume_path"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Scaled-capacity transform for volume anomaly"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 112
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "join_after_transform",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "transform_standard",
+        "transform_scaled"
+      ],
+      "downstream_tasks": [
+        "load_snowflake_log"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in regardless of path taken"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 113
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "load_snowflake_log",
+      "task_type": "SnowflakeOperator (MERGE)",
+      "upstream_tasks": [
+        "join_after_transform"
+      ],
+      "downstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Logistics RAW/staging table"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 114
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "ai_autorca_duration_check",
+      "task_type": "PythonOperator (AutoRCA anomaly hook)",
+      "upstream_tasks": [
+        "load_snowflake_log"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Compares actual vs expected duration, triggers AutoRCA on breach"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 115
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Sends run summary/alert card"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 116
+      },
+      "dag_id": "RTL_LOG_ULRJ",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 11
+    },
+    "incident_id": "INC-008",
+    "dag_id": "RTL_LOG_ULRJ",
+    "incident_name": "Logistics carrier rate-shopping job duration spike",
+    "category": "Unexpected Long Running Job",
+    "severity": "Sev-1 (Critical)",
+    "description": "Unexpected Long Running Job incident on the Logistics pipeline (RTL_LOG_ULRJ): logistics carrier rate-shopping job duration spike.",
+    "symptoms": "REST API fan-out to 6 carriers for rate shopping jumped from 40min average to 3h10m overnight.",
+    "root_cause": "FedEx API introduced a new pagination scheme (25 results/page instead of 100) without version-header negotiation, quadrupling call count.",
+    "business_impact": "Delayed shipping label generation for ~14,000 orders, pushing carrier pickup cutoffs.",
+    "resolution": "Pin API version header, batch pagination requests using dynamic task mapping with concurrency cap."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 11
+    },
+    "incident_id": "INC-008",
+    "expected_rca_summary": "AI AutoRCA should identify: FedEx API introduced a new pagination scheme (25 results/page instead of 100) without version-header negotiation, quadrupling call count.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task duration histogram shows step-change, not gradual drift; task retries=0 (calls succeeded, just more of them)",
+    "datadog_metrics": "Datadog API call count for logistics_rate_shop task 4x baseline, latency per call normal",
+    "confidence_score": 0.87,
+    "resolution": "Pin API version header, batch pagination requests using dynamic task mapping with concurrency cap.",
+    "preventive_action": "Add a Datadog anomaly-detection monitor on external API call-count-per-DAG-run to catch pagination/schema drift early."
+  }
+}

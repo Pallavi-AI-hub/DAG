@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 47
+    },
+    "dag_id": "RTL_WHS_QUEUE",
+    "dag_name": "Marketing campaign-content-generation queue congestion",
+    "business_domain": "Warehouse",
+    "lrj_category": "Queue Congestion",
+    "schedule": "0 9 * * *",
+    "sla": "30m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "WMS + MinIO (pallet manifests)",
+    "destination": "Snowflake RAW.WAREHOUSE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 552
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 553
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "get_mapping_keys",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "process_unit"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the Warehouse entity list (stores/zones/segments/vendors) to fan out over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 554
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "process_unit",
+      "task_type": "PythonOperator.expand (dynamic task mapping, dedicated pool)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "fanout_pool",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per entity, bound to a dedicated Airflow pool"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 555
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "pool_saturation_monitor",
+      "task_type": "PythonOperator (Datadog pool.open_slots check)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Runs in parallel with process_unit, watches shared pool capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 556
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "aggregate_results",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "process_unit",
+        "pool_saturation_monitor"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of all mapped instances plus the monitor"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 557
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Warehouse target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 558
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "datadog_queue_depth_check",
+      "task_type": "PythonOperator (AutoRCA congestion hook)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether queue congestion impacted this or sibling DAGs"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 559
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Run summary notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 560
+      },
+      "dag_id": "RTL_WHS_QUEUE",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 47
+    },
+    "incident_id": "INC-044",
+    "dag_id": "RTL_WHS_QUEUE",
+    "incident_name": "Marketing campaign-content-generation queue congestion",
+    "category": "Queue Congestion",
+    "severity": "Sev-1 (Critical)",
+    "description": "Queue Congestion incident on the Warehouse pipeline (RTL_WHS_QUEUE): marketing campaign-content-generation queue congestion.",
+    "symptoms": "A content-personalization task mapped per audience segment (600 segments) caused queue wait times to reach 90 minutes.",
+    "root_cause": "The task was mistakenly assigned to the same pool as time-critical real-time bidding DAGs, and its high mapped-instance count starved those latency-sensitive DAGs of executor slots during a scheduled 9am campaign launch.",
+    "business_impact": "Real-time bidding campaign adjustments for a live campaign were delayed, resulting in a measurable overspend against the daily budget cap before adjustments took effect.",
+    "resolution": "Move content-personalization to its own pool, separate from real-time bidding DAGs; add pool-priority weighting so latency-sensitive DAGs preempt batch-style work."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 47
+    },
+    "incident_id": "INC-044",
+    "expected_rca_summary": "AI AutoRCA should identify: The task was mistakenly assigned to the same pool as time-critical real-time bidding DAGs, and its high mapped-instance count starved those latency-sensitive DAGs of executor slots during a scheduled 9am campaign launch.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow Pools view shows content_personalization DAG's mapped instances occupying the shared pool disproportionately",
+    "datadog_metrics": "Datadog shows real_time_bidding pool open_slots dropped to near-zero despite RTB DAGs themselves not increasing in volume",
+    "confidence_score": 0.85,
+    "resolution": "Move content-personalization to its own pool, separate from real-time bidding DAGs; add pool-priority weighting so latency-sensitive DAGs preempt batch-style work.",
+    "preventive_action": "Classify DAGs by latency-sensitivity (real-time / near-real-time / batch) in the metadata model and auto-assign pools accordingly during DAG factory generation."
+  }
+}

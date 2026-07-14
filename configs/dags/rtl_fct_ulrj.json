@@ -1,0 +1,314 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 12
+    },
+    "dag_id": "RTL_FCT_ULRJ",
+    "dag_name": "Forecasting feature-store extraction unexpectedly long",
+    "business_domain": "Forecasting",
+    "lrj_category": "Unexpected Long Running Job",
+    "schedule": "0 2 * * *",
+    "sla": "1h",
+    "priority": "P1",
+    "criticality": "High",
+    "source": "ML Feature Store (Vertex AI)",
+    "destination": "Snowflake RAW.FORECAST"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 117
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 118
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "extract_p1",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 119
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "extract_p2",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 120
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "extract_p3",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 121
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "extract_p4",
+      "task_type": "PythonOperator (partition extract)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "volume_check"
+      ],
+      "parallel_group": "extract_fanout",
+      "trigger_rule": "all_success",
+      "dependencies": "Parallel extract shard"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 122
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "volume_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "extract_p1",
+        "extract_p2",
+        "extract_p3",
+        "extract_p4"
+      ],
+      "downstream_tasks": [
+        "normal_volume",
+        "high_volume_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares extracted row count to historical baseline"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 123
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "normal_volume",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_standard"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume within normal range"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 124
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "high_volume_path",
+      "task_type": "PythonOperator (scale_workers)",
+      "upstream_tasks": [
+        "volume_check"
+      ],
+      "downstream_tasks": [
+        "transform_scaled"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: volume anomaly, requests additional worker capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 125
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "transform_standard",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "normal_volume"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Standard-capacity transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 126
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "transform_scaled",
+      "task_type": "PythonOperator (dynamic task mapping)",
+      "upstream_tasks": [
+        "high_volume_path"
+      ],
+      "downstream_tasks": [
+        "join_after_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Scaled-capacity transform for volume anomaly"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 127
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "join_after_transform",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "transform_standard",
+        "transform_scaled"
+      ],
+      "downstream_tasks": [
+        "load_snowflake_fct"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in regardless of path taken"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 128
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "load_snowflake_fct",
+      "task_type": "SnowflakeOperator (MERGE)",
+      "upstream_tasks": [
+        "join_after_transform"
+      ],
+      "downstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Forecasting RAW/staging table"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 129
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "ai_autorca_duration_check",
+      "task_type": "PythonOperator (AutoRCA anomaly hook)",
+      "upstream_tasks": [
+        "load_snowflake_fct"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Compares actual vs expected duration, triggers AutoRCA on breach"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 130
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "ai_autorca_duration_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Sends run summary/alert card"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 131
+      },
+      "dag_id": "RTL_FCT_ULRJ",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 12
+    },
+    "incident_id": "INC-009",
+    "dag_id": "RTL_FCT_ULRJ",
+    "incident_name": "Forecasting feature-store extraction unexpectedly long",
+    "category": "Unexpected Long Running Job",
+    "severity": "Sev-1 (High)",
+    "description": "Unexpected Long Running Job incident on the Forecasting pipeline (RTL_FCT_ULRJ): forecasting feature-store extraction unexpectedly long.",
+    "symptoms": "Nightly feature extraction from Vertex AI Feature Store went from 25min to 2h40m.",
+    "root_cause": "A new feature group (weather-correlated demand signals) was added upstream without partitioning, forcing a full-table scan instead of point lookups.",
+    "business_impact": "Delayed demand forecast refresh affecting next-day replenishment recommendations for 3,200 SKUs.",
+    "resolution": "Add partition key on feature group ingestion_date; switch extraction to point-in-time batch reads."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 12
+    },
+    "incident_id": "INC-009",
+    "expected_rca_summary": "AI AutoRCA should identify: A new feature group (weather-correlated demand signals) was added upstream without partitioning, forcing a full-table scan instead of point lookups.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow logs show extract_features task scanning 40x more rows than prior run (row_count metadata delta)",
+    "datadog_metrics": "Datadog Vertex AI query latency metric spiked from 200ms to 4.2s per call",
+    "confidence_score": 0.84,
+    "resolution": "Add partition key on feature group ingestion_date; switch extraction to point-in-time batch reads.",
+    "preventive_action": "Require new feature groups to pass a partitioning-review gate in the metadata model before onboarding to production DAGs."
+  }
+}

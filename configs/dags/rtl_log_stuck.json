@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 26
+    },
+    "dag_id": "RTL_LOG_STUCK",
+    "dag_name": "Logistics carrier tracking-webhook listener stuck",
+    "business_domain": "Logistics",
+    "lrj_category": "Stuck/Hung Job",
+    "schedule": "*/15 * * * *",
+    "sla": "30m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "Carrier REST API (FedEx/UPS)",
+    "destination": "Snowflake RAW.LOGISTICS"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 303
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 304
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "connectivity_precheck",
+      "task_type": "PythonOperator (handshake/reachability check)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "external_event_sensor"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates upstream reachability before entering poke mode"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 305
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "external_event_sensor",
+      "task_type": "Sensor (reschedule mode, bounded timeout)",
+      "upstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "downstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on external file/event/webhook signal from Logistics source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 306
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "branch_on_sensor_result",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "external_event_sensor"
+      ],
+      "downstream_tasks": [
+        "arrived",
+        "timed_out"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether sensor resolved or timed out"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 307
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "arrived",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "heavy_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: signal arrived in time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 308
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "timed_out",
+      "task_type": "PythonOperator (fallback trigger)",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: sensor exceeded bounded timeout"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 309
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "fallback_degraded_path",
+      "task_type": "PythonOperator (degraded-mode processing)",
+      "upstream_tasks": [
+        "timed_out"
+      ],
+      "downstream_tasks": [
+        "notify_stuck_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Processes with prior-period data / partial data as fallback"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 310
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "heavy_transform",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "arrived"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Main transform once signal received"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 311
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "heavy_transform"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Logistics target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 312
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "notify_stuck_alert",
+      "task_type": "PythonOperator (Teams + AutoRCA hang-detection hook)",
+      "upstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Alerts on-call and triggers AutoRCA hang analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 313
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "notify_stuck_alert"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 314
+      },
+      "dag_id": "RTL_LOG_STUCK",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 26
+    },
+    "incident_id": "INC-023",
+    "dag_id": "RTL_LOG_STUCK",
+    "incident_name": "Logistics carrier tracking-webhook listener stuck",
+    "category": "Stuck/Hung Job",
+    "severity": "Sev-1 (Critical)",
+    "description": "Stuck/Hung Job incident on the Logistics pipeline (RTL_LOG_STUCK): logistics carrier tracking-webhook listener stuck.",
+    "symptoms": "A task waiting on a carrier webhook callback (deferrable operator) never resumes; the task has been in deferred state for 9 hours.",
+    "root_cause": "The carrier's webhook endpoint changed its callback payload structure, so the trigger's payload-matching condition never evaluates true, and there is no fallback polling path.",
+    "business_impact": "Shipment status updates frozen for all in-transit orders, causing customer-facing tracking pages to show stale 'in transit' status for 9+ hours.",
+    "resolution": "Add a fallback polling task on a trigger_rule=all_failed branch that activates if the deferred sensor exceeds a threshold; fix payload matching for the new carrier schema."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 26
+    },
+    "incident_id": "INC-023",
+    "expected_rca_summary": "AI AutoRCA should identify: The carrier's webhook endpoint changed its callback payload structure, so the trigger's payload-matching condition never evaluates true, and there is no fallback polling path.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow trigger log shows the Trigger process alive but never firing the resume event",
+    "datadog_metrics": "Datadog webhook.callbacks_received metric flat-lined to zero while task remained deferred",
+    "confidence_score": 0.81,
+    "resolution": "Add a fallback polling task on a trigger_rule=all_failed branch that activates if the deferred sensor exceeds a threshold; fix payload matching for the new carrier schema.",
+    "preventive_action": "Require all deferrable/webhook-based operators to pair with a polling fallback branch in the architecture template."
+  }
+}

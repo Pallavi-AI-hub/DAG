@@ -1,0 +1,237 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 45
+    },
+    "dag_id": "RTL_RET_RETRY",
+    "dag_name": "Finance bank-feed reconciliation retry storm",
+    "business_domain": "Returns",
+    "lrj_category": "Retry Storm",
+    "schedule": "0 5 * * *",
+    "sla": "1h",
+    "priority": "P2",
+    "criticality": "Medium",
+    "source": "RMA System (Narvar)",
+    "destination": "Snowflake RAW.RETURNS"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 532
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 533
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "get_active_endpoints",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "call_external_api"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the list of Returns endpoints/accounts/vendors to map over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 534
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "call_external_api",
+      "task_type": "PythonOperator.expand (dynamic task mapping, exponential backoff retries)",
+      "upstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "api_calls_fanout",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per endpoint; retry policy is error-code-aware"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 535
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "aggregate_results",
+      "task_type": "PythonOperator (fan-in)",
+      "upstream_tasks": [
+        "call_external_api"
+      ],
+      "downstream_tasks": [
+        "error_rate_check"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Aggregates success/failure/retry counts across mapped instances"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 536
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "error_rate_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "normal",
+        "retry_storm_detected"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Evaluates aggregate retry/error rate against a storm threshold"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 537
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "normal",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry rate within normal bounds"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 538
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "retry_storm_detected",
+      "task_type": "PythonOperator (circuit breaker trip)",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "notify_teams_critical"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry storm detected, trips circuit breaker for downstream calls"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 539
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "notify_teams_critical",
+      "task_type": "PythonOperator (Teams Adaptive Card, P1)",
+      "upstream_tasks": [
+        "retry_storm_detected"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Pages on-call, attaches AutoRCA retry-storm analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 540
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "normal"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Returns target with successfully retrieved records"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 541
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target",
+        "notify_teams_critical"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both branches"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 542
+      },
+      "dag_id": "RTL_RET_RETRY",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 45
+    },
+    "incident_id": "INC-042",
+    "dag_id": "RTL_RET_RETRY",
+    "incident_name": "Finance bank-feed reconciliation retry storm",
+    "category": "Retry Storm",
+    "severity": "Sev-2 (Medium)",
+    "description": "Retry Storm incident on the Returns pipeline (RTL_RET_RETRY): finance bank-feed reconciliation retry storm.",
+    "symptoms": "The daily bank-feed API pull, mapped across 12 regional bank accounts, generated 340 retries concentrated on 2 of the 12 accounts.",
+    "root_cause": "Two regional bank accounts' API credentials were mid-rotation by the treasury team without coordinating with the data engineering team, causing consistent 403s that were retried as if transient.",
+    "business_impact": "Cash position reconciliation incomplete for 2 regions, requiring manual bank portal lookups by the treasury team to close the day.",
+    "resolution": "Coordinate credential rotation via a shared change calendar; add a 403-specific fail-fast path (max 1 retry) distinct from network-transient error handling."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 45
+    },
+    "incident_id": "INC-042",
+    "expected_rca_summary": "AI AutoRCA should identify: Two regional bank accounts' API credentials were mid-rotation by the treasury team without coordinating with the data engineering team, causing consistent 403s that were retried as if transient.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow retry log shows consistent, non-decreasing error pattern typical of a credential (not network) issue",
+    "datadog_metrics": "Datadog shows 403 errors isolated to exactly 2 of 12 mapped task instances, correlated with treasury's change-ticket timestamp",
+    "confidence_score": 0.83,
+    "resolution": "Coordinate credential rotation via a shared change calendar; add a 403-specific fail-fast path (max 1 retry) distinct from network-transient error handling.",
+    "preventive_action": "Require any credential-rotation change to be logged against the metadata model's connection registry, triggering an automatic DAG-owner notification before rotation."
+  }
+}

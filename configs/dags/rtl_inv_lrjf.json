@@ -1,0 +1,254 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 20
+    },
+    "dag_id": "RTL_INV_LRJF",
+    "dag_name": "Suppliers EDI ASN ingestion fails on disk full",
+    "business_domain": "Inventory",
+    "lrj_category": "Long Running Job Failure",
+    "schedule": "0 5 * * *",
+    "sla": "3h",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "WMS (Manhattan Active)",
+    "destination": "Snowflake RAW.INVENTORY"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 231
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_inv"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 232
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "extract_inv",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "checkpoint_1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Inventory source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 233
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "checkpoint_1",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "extract_inv"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state for restartability"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 234
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "heavy_transform_stage1",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_1"
+      ],
+      "downstream_tasks": [
+        "checkpoint_2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 1 of multi-stage transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 235
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "checkpoint_2",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 236
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "heavy_transform_stage2",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_2"
+      ],
+      "downstream_tasks": [
+        "checkpoint_3"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 2 - historically the failure point for this DAG"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 237
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "checkpoint_3",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists final pre-load state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 238
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "checkpoint_3"
+      ],
+      "downstream_tasks": [
+        "notify_teams_success"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Inventory target table/object"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 239
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "notify_teams_success",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Success notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 240
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "on_failure_callback_trigger",
+      "task_type": "PythonOperator (AutoRCA callback)",
+      "upstream_tasks": [
+        "heavy_transform_stage1",
+        "heavy_transform_stage2",
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams_failure"
+      ],
+      "trigger_rule": "one_failed",
+      "dependencies": "Fires AI AutoRCA multi-agent investigation on any task failure"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 241
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "notify_teams_failure",
+      "task_type": "PythonOperator (Teams Adaptive Card + RCA summary)",
+      "upstream_tasks": [
+        "on_failure_callback_trigger"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Failure notification with AutoRCA findings attached"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 242
+      },
+      "dag_id": "RTL_INV_LRJF",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams_success",
+        "notify_teams_failure"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 20
+    },
+    "incident_id": "INC-017",
+    "dag_id": "RTL_INV_LRJF",
+    "incident_name": "Suppliers EDI ASN ingestion fails on disk full",
+    "category": "Long Running Job Failure",
+    "severity": "Sev-2 (High)",
+    "description": "Long Running Job Failure incident on the Inventory pipeline (RTL_INV_LRJF): suppliers EDI ASN ingestion fails on disk full.",
+    "symptoms": "Vendor ASN ingestion DAG fails after 2h50m when the worker's local disk fills up during a large SFTP-to-Parquet conversion step.",
+    "root_cause": "A single vendor (holiday collection supplier) sent an unusually large batch of ASN files (14GB vs typical 400MB) and the conversion task streams to local disk before uploading to MinIO, with no disk-space pre-check.",
+    "business_impact": "Inbound shipment visibility lost for that vendor's holiday collection, delaying receiving dock scheduling.",
+    "resolution": "Stream SFTP-to-Parquet conversion directly to MinIO instead of local disk; add a pre-flight disk-space check task."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 20
+    },
+    "incident_id": "INC-017",
+    "expected_rca_summary": "AI AutoRCA should identify: A single vendor (holiday collection supplier) sent an unusually large batch of ASN files (14GB vs typical 400MB) and the conversion task streams to local disk before uploading to MinIO, with no disk-space pre-check.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task fails with OSError: No space left on device",
+    "datadog_metrics": "Datadog host.disk.free on the worker node dropped to 0 during the run",
+    "confidence_score": 0.85,
+    "resolution": "Stream SFTP-to-Parquet conversion directly to MinIO instead of local disk; add a pre-flight disk-space check task.",
+    "preventive_action": "Add file-size-based routing in the metadata model so unusually large vendor batches trigger a distributed (Spark) conversion path instead of local pandas."
+  }
+}

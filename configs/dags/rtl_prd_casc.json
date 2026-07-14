@@ -1,0 +1,274 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 34
+    },
+    "dag_id": "RTL_PRD_CASC",
+    "dag_name": "Suppliers ASN delay cascades into Warehouse receiving schedule",
+    "business_domain": "Product Master",
+    "lrj_category": "Cascading Delay",
+    "schedule": "0 6 * * *",
+    "sla": "1.5h (from upstream completion)",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "SAP ERP (Material Master)",
+    "destination": "Snowflake RAW.PRODUCT"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 401
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 402
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "sensor_upstream_a",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain A DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 403
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "sensor_upstream_b",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain B DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 404
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "sensor_upstream_c",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain C DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 405
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "fan_in_join",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "downstream_tasks": [
+        "consolidate_prd"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Requires all 3 upstream domains to have completed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 406
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "consolidate_prd",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "fan_in_join"
+      ],
+      "downstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Consolidates Product Master data across upstream domains"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 407
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "cascade_delay_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "consolidate_prd"
+      ],
+      "downstream_tasks": [
+        "on_time",
+        "cascaded_delay"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares actual start time to expected upstream-completion time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 408
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "on_time",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: no material cascade delay detected"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 409
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "cascaded_delay",
+      "task_type": "PythonOperator (AutoRCA cascade-RCA hook)",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "notify_cascade_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: cascade delay detected, triggers cross-DAG AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 410
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "notify_cascade_alert",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "cascaded_delay"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Notifies stakeholders of cascade impact with root-cause chain"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 411
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "on_time",
+        "notify_cascade_alert"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Loads Product Master consolidated target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 412
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Final join"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 413
+      },
+      "dag_id": "RTL_PRD_CASC",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 34
+    },
+    "incident_id": "INC-031",
+    "dag_id": "RTL_PRD_CASC",
+    "incident_name": "Suppliers ASN delay cascades into Warehouse receiving schedule",
+    "category": "Cascading Delay",
+    "severity": "Sev-2 (High)",
+    "description": "Cascading Delay incident on the Product Master pipeline (RTL_PRD_CASC): suppliers ASN delay cascades into Warehouse receiving schedule.",
+    "symptoms": "Warehouse receiving-schedule DAG, which consumes ASN data via cross-DAG dependency, is delayed 4h.",
+    "root_cause": "Suppliers domain's ASN ingestion (see Stuck/Hung catalogue) hung on a vendor-portal sensor, and Warehouse's receiving-schedule DAG has no timeout-independent fallback, so the block fully cascades.",
+    "business_impact": "Dock scheduling for two inbound trucks delayed, causing driver detention charges and a backlog at the receiving dock.",
+    "resolution": "Add a fallback receiving-schedule path that runs off yesterday's ASN data with a manual-override flag if today's ASN data hasn't arrived within a defined grace window."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 34
+    },
+    "incident_id": "INC-031",
+    "expected_rca_summary": "AI AutoRCA should identify: Suppliers domain's ASN ingestion (see Stuck/Hung catalogue) hung on a vendor-portal sensor, and Warehouse's receiving-schedule DAG has no timeout-independent fallback, so the block fully cascades.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, cross-DAG lineage/dependency graph, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow lineage graph (cross-DAG) shows the dependency chain and timestamps confirming propagation",
+    "datadog_metrics": "Datadog shows a synchronized delay signature: Suppliers DAG stuck event followed by Warehouse DAG sensor wait event",
+    "confidence_score": 0.86,
+    "resolution": "Add a fallback receiving-schedule path that runs off yesterday's ASN data with a manual-override flag if today's ASN data hasn't arrived within a defined grace window.",
+    "preventive_action": "Require every cross-domain dependency in the metadata model to declare a documented fallback/degraded-mode behavior, not just a hard blocking wait."
+  }
+}

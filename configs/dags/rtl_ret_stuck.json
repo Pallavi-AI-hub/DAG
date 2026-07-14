@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 30
+    },
+    "dag_id": "RTL_RET_STUCK",
+    "dag_name": "Finance bank-statement reconciliation sensor hangs",
+    "business_domain": "Returns",
+    "lrj_category": "Stuck/Hung Job",
+    "schedule": "0 6 * * *",
+    "sla": "2h",
+    "priority": "P2",
+    "criticality": "High",
+    "source": "RMA System (Narvar)",
+    "destination": "Snowflake RAW.RETURNS"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 351
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 352
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "connectivity_precheck",
+      "task_type": "PythonOperator (handshake/reachability check)",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "external_event_sensor"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Validates upstream reachability before entering poke mode"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 353
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "external_event_sensor",
+      "task_type": "Sensor (reschedule mode, bounded timeout)",
+      "upstream_tasks": [
+        "connectivity_precheck"
+      ],
+      "downstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on external file/event/webhook signal from Returns source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 354
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "branch_on_sensor_result",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "external_event_sensor"
+      ],
+      "downstream_tasks": [
+        "arrived",
+        "timed_out"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether sensor resolved or timed out"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 355
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "arrived",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "heavy_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: signal arrived in time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 356
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "timed_out",
+      "task_type": "PythonOperator (fallback trigger)",
+      "upstream_tasks": [
+        "branch_on_sensor_result"
+      ],
+      "downstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: sensor exceeded bounded timeout"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 357
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "fallback_degraded_path",
+      "task_type": "PythonOperator (degraded-mode processing)",
+      "upstream_tasks": [
+        "timed_out"
+      ],
+      "downstream_tasks": [
+        "notify_stuck_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Processes with prior-period data / partial data as fallback"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 358
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "heavy_transform",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "arrived"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Main transform once signal received"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 359
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "heavy_transform"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Returns target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 360
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "notify_stuck_alert",
+      "task_type": "PythonOperator (Teams + AutoRCA hang-detection hook)",
+      "upstream_tasks": [
+        "fallback_degraded_path"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Alerts on-call and triggers AutoRCA hang analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 361
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "notify_stuck_alert"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 362
+      },
+      "dag_id": "RTL_RET_STUCK",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 30
+    },
+    "incident_id": "INC-027",
+    "dag_id": "RTL_RET_STUCK",
+    "incident_name": "Finance bank-statement reconciliation sensor hangs",
+    "category": "Stuck/Hung Job",
+    "severity": "Sev-2 (High)",
+    "description": "Stuck/Hung Job incident on the Returns pipeline (RTL_RET_STUCK): finance bank-statement reconciliation sensor hangs.",
+    "symptoms": "A FileSensor waiting for the daily bank statement file on SFTP has been poking for 16 hours past its usual 2-hour arrival window.",
+    "root_cause": "The bank's SFTP server rotated its host key without notice; the sensor's underlying paramiko client silently retries the handshake without ever raising a clear error or respecting the sensor's timeout parameter due to a library-level bug.",
+    "business_impact": "Daily cash-position reconciliation blocked; treasury team operates without a reconciled cash view for the day.",
+    "resolution": "Manually restart the task after updating the known_hosts entry; upgrade the SFTP hook library and enforce sensor-level timeout at the Airflow scheduler layer, not just the library layer."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 30
+    },
+    "incident_id": "INC-027",
+    "expected_rca_summary": "AI AutoRCA should identify: The bank's SFTP server rotated its host key without notice; the sensor's underlying paramiko client silently retries the handshake without ever raising a clear error or respecting the sensor's timeout parameter due to a library-level bug.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow sensor task shows continuous 'poking' log lines with identical timest/no error",
+    "datadog_metrics": "Datadog no data received for sftp.connection.success metric during the stall window",
+    "confidence_score": 0.78,
+    "resolution": "Manually restart the task after updating the known_hosts entry; upgrade the SFTP hook library and enforce sensor-level timeout at the Airflow scheduler layer, not just the library layer.",
+    "preventive_action": "Add a distinct 'connectivity pre-check' task ahead of every FileSensor that validates host reachability/handshake before entering poke mode."
+  }
+}

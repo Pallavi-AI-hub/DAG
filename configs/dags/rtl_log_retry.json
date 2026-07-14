@@ -1,0 +1,237 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 41
+    },
+    "dag_id": "RTL_LOG_RETRY",
+    "dag_name": "Orders payment-gateway verification retry storm",
+    "business_domain": "Logistics",
+    "lrj_category": "Retry Storm",
+    "schedule": "*/5 * * * *",
+    "sla": "10m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "Carrier REST API (FedEx/UPS)",
+    "destination": "Snowflake RAW.LOGISTICS"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 488
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 489
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "get_active_endpoints",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "call_external_api"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the list of Logistics endpoints/accounts/vendors to map over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 490
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "call_external_api",
+      "task_type": "PythonOperator.expand (dynamic task mapping, exponential backoff retries)",
+      "upstream_tasks": [
+        "get_active_endpoints"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "api_calls_fanout",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per endpoint; retry policy is error-code-aware"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 491
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "aggregate_results",
+      "task_type": "PythonOperator (fan-in)",
+      "upstream_tasks": [
+        "call_external_api"
+      ],
+      "downstream_tasks": [
+        "error_rate_check"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Aggregates success/failure/retry counts across mapped instances"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 492
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "error_rate_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "normal",
+        "retry_storm_detected"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Evaluates aggregate retry/error rate against a storm threshold"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 493
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "normal",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry rate within normal bounds"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 494
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "retry_storm_detected",
+      "task_type": "PythonOperator (circuit breaker trip)",
+      "upstream_tasks": [
+        "error_rate_check"
+      ],
+      "downstream_tasks": [
+        "notify_teams_critical"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: retry storm detected, trips circuit breaker for downstream calls"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 495
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "notify_teams_critical",
+      "task_type": "PythonOperator (Teams Adaptive Card, P1)",
+      "upstream_tasks": [
+        "retry_storm_detected"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Pages on-call, attaches AutoRCA retry-storm analysis"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 496
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "normal"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Logistics target with successfully retrieved records"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 497
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target",
+        "notify_teams_critical"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both branches"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 498
+      },
+      "dag_id": "RTL_LOG_RETRY",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 41
+    },
+    "incident_id": "INC-038",
+    "dag_id": "RTL_LOG_RETRY",
+    "incident_name": "Orders payment-gateway verification retry storm",
+    "category": "Retry Storm",
+    "severity": "Sev-1 (Critical)",
+    "description": "Retry Storm incident on the Logistics pipeline (RTL_LOG_RETRY): orders payment-gateway verification retry storm.",
+    "symptoms": "Order payment-status verification calls, mapped per pending order, generated 2,200 retries in a 45-minute window during a flash sale.",
+    "root_cause": "The payment gateway's API returned intermittent 503s during a traffic spike, and the DAG's retry policy (5 retries, no cap on total system-wide concurrent retries) amplified load on an already-struggling gateway, worsening the outage.",
+    "business_impact": "Order confirmation emails delayed for ~3,000 customers during peak flash-sale traffic, generating a spike in 'where is my order confirmation' support tickets.",
+    "resolution": "Implement a global retry budget/circuit breaker across all mapped instances of the task (not per-instance), and add a queue-and-drain pattern instead of immediate parallel retry."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 41
+    },
+    "incident_id": "INC-038",
+    "expected_rca_summary": "AI AutoRCA should identify: The payment gateway's API returned intermittent 503s during a traffic spike, and the DAG's retry policy (5 retries, no cap on total system-wide concurrent retries) amplified load on an already-struggling gateway, worsening the outage.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow shows total system-wide retry count far exceeding the per-task retry limit due to mapped-instance multiplication",
+    "datadog_metrics": "Datadog payment_gateway.503_response_rate and airflow retry_count rose together, confirming the amplification loop",
+    "confidence_score": 0.9,
+    "resolution": "Implement a global retry budget/circuit breaker across all mapped instances of the task (not per-instance), and add a queue-and-drain pattern instead of immediate parallel retry.",
+    "preventive_action": "Add a 'retry storm containment' pattern to the architecture template library: circuit breaker + global retry budget for any task calling a shared, rate-sensitive external dependency."
+  }
+}

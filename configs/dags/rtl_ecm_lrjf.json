@@ -1,0 +1,254 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 18
+    },
+    "dag_id": "RTL_ECM_LRJF",
+    "dag_name": "Customer 360 identity merge job fails on deadlock",
+    "business_domain": "Ecommerce",
+    "lrj_category": "Long Running Job Failure",
+    "schedule": "0 1 * * *",
+    "sla": "6h",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "Shopify Plus API",
+    "destination": "Snowflake RAW.ECOMMERCE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 207
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_ecm"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 208
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "extract_ecm",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "checkpoint_1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Ecommerce source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 209
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "checkpoint_1",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "extract_ecm"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state for restartability"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 210
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "heavy_transform_stage1",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_1"
+      ],
+      "downstream_tasks": [
+        "checkpoint_2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 1 of multi-stage transform"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 211
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "checkpoint_2",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage1"
+      ],
+      "downstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists intermediate state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 212
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "heavy_transform_stage2",
+      "task_type": "PythonOperator/SQLOperator (heavy compute)",
+      "upstream_tasks": [
+        "checkpoint_2"
+      ],
+      "downstream_tasks": [
+        "checkpoint_3"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Stage 2 - historically the failure point for this DAG"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 213
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "checkpoint_3",
+      "task_type": "PythonOperator (state checkpoint)",
+      "upstream_tasks": [
+        "heavy_transform_stage2"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persists final pre-load state"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 214
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "checkpoint_3"
+      ],
+      "downstream_tasks": [
+        "notify_teams_success"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Ecommerce target table/object"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 215
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "notify_teams_success",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Success notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 216
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "on_failure_callback_trigger",
+      "task_type": "PythonOperator (AutoRCA callback)",
+      "upstream_tasks": [
+        "heavy_transform_stage1",
+        "heavy_transform_stage2",
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams_failure"
+      ],
+      "trigger_rule": "one_failed",
+      "dependencies": "Fires AI AutoRCA multi-agent investigation on any task failure"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 217
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "notify_teams_failure",
+      "task_type": "PythonOperator (Teams Adaptive Card + RCA summary)",
+      "upstream_tasks": [
+        "on_failure_callback_trigger"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Failure notification with AutoRCA findings attached"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 218
+      },
+      "dag_id": "RTL_ECM_LRJF",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams_success",
+        "notify_teams_failure"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 18
+    },
+    "incident_id": "INC-015",
+    "dag_id": "RTL_ECM_LRJF",
+    "incident_name": "Customer 360 identity merge job fails on deadlock",
+    "category": "Long Running Job Failure",
+    "severity": "Sev-1 (Critical)",
+    "description": "Long Running Job Failure incident on the Ecommerce pipeline (RTL_ECM_LRJF): customer 360 identity merge job fails on deadlock.",
+    "symptoms": "Nightly identity-resolution DAG fails after 4h10m runtime with a Postgres deadlock error on the crosswalk table.",
+    "root_cause": "Two concurrent merge tasks (loyalty_merge and guest_merge) both acquire row-level locks on customer_crosswalk in opposite order, producing a classic deadlock.",
+    "business_impact": "Customer 360 profile unavailable for the morning CRM refresh; support agents work off stale profiles for ~90 minutes.",
+    "resolution": "Enforce a consistent lock-acquisition order between the two merge tasks, or serialize them with a trigger_rule dependency instead of running in parallel."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 18
+    },
+    "incident_id": "INC-015",
+    "expected_rca_summary": "AI AutoRCA should identify: Two concurrent merge tasks (loyalty_merge and guest_merge) both acquire row-level locks on customer_crosswalk in opposite order, producing a classic deadlock.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task log shows Postgres error 40P01 (deadlock detected), task marked failed after 4h10m",
+    "datadog_metrics": "Datadog Postgres deadlocks_detected metric spiked to 1 at time of failure",
+    "confidence_score": 0.9,
+    "resolution": "Enforce a consistent lock-acquisition order between the two merge tasks, or serialize them with a trigger_rule dependency instead of running in parallel.",
+    "preventive_action": "Add a dbt/SQL pre-commit check that flags multi-table UPDATE statements lacking a documented lock-order convention."
+  }
+}

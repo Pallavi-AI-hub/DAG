@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 52
+    },
+    "dag_id": "RTL_ORD_QUEUE",
+    "dag_name": "Returns image-inspection queue congestion",
+    "business_domain": "Orders",
+    "lrj_category": "Queue Congestion",
+    "schedule": "0 * * * *",
+    "sla": "30m",
+    "priority": "P1",
+    "criticality": "High",
+    "source": "Ecommerce OMS (Salesforce Commerce)",
+    "destination": "Snowflake RAW.ORDERS"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 597
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 598
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "get_mapping_keys",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "process_unit"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the Orders entity list (stores/zones/segments/vendors) to fan out over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 599
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "process_unit",
+      "task_type": "PythonOperator.expand (dynamic task mapping, dedicated pool)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "fanout_pool",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per entity, bound to a dedicated Airflow pool"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 600
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "pool_saturation_monitor",
+      "task_type": "PythonOperator (Datadog pool.open_slots check)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Runs in parallel with process_unit, watches shared pool capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 601
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "aggregate_results",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "process_unit",
+        "pool_saturation_monitor"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of all mapped instances plus the monitor"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 602
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Orders target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 603
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "datadog_queue_depth_check",
+      "task_type": "PythonOperator (AutoRCA congestion hook)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether queue congestion impacted this or sibling DAGs"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 604
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Run summary notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 605
+      },
+      "dag_id": "RTL_ORD_QUEUE",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 52
+    },
+    "incident_id": "INC-049",
+    "dag_id": "RTL_ORD_QUEUE",
+    "incident_name": "Returns image-inspection queue congestion",
+    "category": "Queue Congestion",
+    "severity": "Sev-1 (High)",
+    "description": "Queue Congestion incident on the Orders pipeline (RTL_ORD_QUEUE): returns image-inspection queue congestion.",
+    "symptoms": "Image-based return-condition inspection tasks, mapped per returned item photo (up to 3,000/day during holiday returns peak), queued for hours behind a fixed-size inference pool.",
+    "root_cause": "The inference pool was provisioned for average daily volume (~500 items) with no seasonal scaling plan, and holiday-return volume is roughly 6x average, overwhelming fixed capacity.",
+    "business_impact": "Returns processing backlog grows daily through the holiday return season, delaying refunds to customers beyond the company's published 5-business-day refund SLA, risking customer satisfaction and regulatory scrutiny in some regions.",
+    "resolution": "Add elastic autoscaling for the inference pool tied to queue depth, with a pre-approved higher ceiling during the declared holiday-return season window."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 52
+    },
+    "incident_id": "INC-049",
+    "expected_rca_summary": "AI AutoRCA should identify: The inference pool was provisioned for average daily volume (~500 items) with no seasonal scaling plan, and holiday-return volume is roughly 6x average, overwhelming fixed capacity.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow shows a growing backlog of queued task instances across consecutive DAG runs, not clearing between runs",
+    "datadog_metrics": "Datadog inference_pool.queue_depth trend shows sustained growth (not recovering between runs) through the holiday period",
+    "confidence_score": 0.86,
+    "resolution": "Add elastic autoscaling for the inference pool tied to queue depth, with a pre-approved higher ceiling during the declared holiday-return season window.",
+    "preventive_action": "Formalize seasonal capacity plans as versioned entries in the metadata model, reviewed and pre-approved ahead of known peak periods (holiday returns, back-to-school, etc.)."
+  }
+}

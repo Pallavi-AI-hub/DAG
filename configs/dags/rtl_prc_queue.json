@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 51
+    },
+    "dag_id": "RTL_PRC_QUEUE",
+    "dag_name": "Ecommerce personalization-model batch-scoring queue congestion",
+    "business_domain": "Pricing",
+    "lrj_category": "Queue Congestion",
+    "schedule": "0 */3 * * *",
+    "sla": "45m",
+    "priority": "P2",
+    "criticality": "Medium",
+    "source": "Pricing Engine (Revionics)",
+    "destination": "Snowflake RAW.PRICING"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 588
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 589
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "get_mapping_keys",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "process_unit"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetches the Pricing entity list (stores/zones/segments/vendors) to fan out over"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 590
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "process_unit",
+      "task_type": "PythonOperator.expand (dynamic task mapping, dedicated pool)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "parallel_group": "fanout_pool",
+      "trigger_rule": "all_done",
+      "dependencies": "One mapped instance per entity, bound to a dedicated Airflow pool"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 591
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "pool_saturation_monitor",
+      "task_type": "PythonOperator (Datadog pool.open_slots check)",
+      "upstream_tasks": [
+        "get_mapping_keys"
+      ],
+      "downstream_tasks": [
+        "aggregate_results"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Runs in parallel with process_unit, watches shared pool capacity"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 592
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "aggregate_results",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "process_unit",
+        "pool_saturation_monitor"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of all mapped instances plus the monitor"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 593
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "aggregate_results"
+      ],
+      "downstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Pricing target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 594
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "datadog_queue_depth_check",
+      "task_type": "PythonOperator (AutoRCA congestion hook)",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "notify_teams"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Evaluates whether queue congestion impacted this or sibling DAGs"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 595
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "notify_teams",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "datadog_queue_depth_check"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Run summary notification"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 596
+      },
+      "dag_id": "RTL_PRC_QUEUE",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_teams"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 51
+    },
+    "incident_id": "INC-048",
+    "dag_id": "RTL_PRC_QUEUE",
+    "incident_name": "Ecommerce personalization-model batch-scoring queue congestion",
+    "category": "Queue Congestion",
+    "severity": "Sev-2 (Medium)",
+    "description": "Queue Congestion incident on the Pricing pipeline (RTL_PRC_QUEUE): ecommerce personalization-model batch-scoring queue congestion.",
+    "symptoms": "Batch scoring tasks mapped per customer segment (200 segments) queued behind a shared 'ml-inference' pool already saturated by an unrelated recommendation-engine DAG.",
+    "root_cause": "Two independently-scheduled DAGs (personalization scoring and recommendation-engine refresh) were both assigned to the same 'ml-inference' pool without coordination, and their overlapping schedules regularly exceed the pool's combined capacity needs.",
+    "business_impact": "Homepage personalization content stales for up to 2 hours during the overlap window, reducing click-through on personalized modules during that period.",
+    "resolution": "Stagger the two DAGs' schedules to avoid overlap, or split them into separate pools sized independently for each workload's actual needs."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 51
+    },
+    "incident_id": "INC-048",
+    "expected_rca_summary": "AI AutoRCA should identify: Two independently-scheduled DAGs (personalization scoring and recommendation-engine refresh) were both assigned to the same 'ml-inference' pool without coordination, and their overlapping schedules regularly exceed the pool's combined capacity needs.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow Pools view attribution by DAG confirms both DAGs' overlapping schedule windows",
+    "datadog_metrics": "Datadog pool.ml_inference.queued_tasks shows two distinct DAGs both contributing to the queue, visible via task-owner tagging",
+    "confidence_score": 0.81,
+    "resolution": "Stagger the two DAGs' schedules to avoid overlap, or split them into separate pools sized independently for each workload's actual needs.",
+    "preventive_action": "Add a pool-contention check to the DAG factory validation step that flags newly registered DAGs sharing a pool with existing DAGs whose schedules overlap significantly."
+  }
+}

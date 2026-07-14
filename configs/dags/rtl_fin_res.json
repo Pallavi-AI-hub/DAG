@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 58
+    },
+    "dag_id": "RTL_FIN_RES",
+    "dag_name": "Promotions rules-engine evaluation exhausts CPU on shared node",
+    "business_domain": "Finance",
+    "lrj_category": "Resource Exhaustion",
+    "schedule": "*/15 * * * *",
+    "sla": "10m",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "ERP GL (SAP FI/CO)",
+    "destination": "Snowflake RAW.FINANCE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 666
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "extract_fin"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 667
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "extract_fin",
+      "task_type": "PythonOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "resource_precheck"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Extract from Finance source"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 668
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "resource_precheck",
+      "task_type": "PythonOperator (memory/CPU budget estimate)",
+      "upstream_tasks": [
+        "extract_fin"
+      ],
+      "downstream_tasks": [
+        "heavy_inmemory_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Estimates peak resource usage from row-count metadata before compute"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 669
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "heavy_inmemory_transform",
+      "task_type": "PythonOperator (resource requests/limits set)",
+      "upstream_tasks": [
+        "resource_precheck"
+      ],
+      "downstream_tasks": [
+        "memory_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Resource-intensive in-memory computation, historically prone to exhaustion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 670
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "memory_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "heavy_inmemory_transform"
+      ],
+      "downstream_tasks": [
+        "within_budget",
+        "near_exhaustion"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Checks actual peak usage against budget mid-run/post-run"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 671
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "within_budget",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "memory_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: resource usage within safe budget"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 672
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "near_exhaustion",
+      "task_type": "PythonOperator (chunked fallback)",
+      "upstream_tasks": [
+        "memory_check"
+      ],
+      "downstream_tasks": [
+        "chunked_fallback_transform"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: near resource ceiling, reroutes to chunked processing"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 673
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "chunked_fallback_transform",
+      "task_type": "PythonOperator.expand (chunked, dynamic task mapping)",
+      "upstream_tasks": [
+        "near_exhaustion"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Reprocesses in bounded-memory chunks"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 674
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "within_budget"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Loads Finance target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 675
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "load_target",
+        "chunked_fallback_transform"
+      ],
+      "downstream_tasks": [
+        "datadog_resource_check"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Fan-in of both paths"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 676
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "datadog_resource_check",
+      "task_type": "PythonOperator (AutoRCA resource-exhaustion hook)",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_done",
+      "dependencies": "Logs final resource profile for trend monitoring"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 677
+      },
+      "dag_id": "RTL_FIN_RES",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "datadog_resource_check"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 58
+    },
+    "incident_id": "INC-055",
+    "dag_id": "RTL_FIN_RES",
+    "incident_name": "Promotions rules-engine evaluation exhausts CPU on shared node",
+    "category": "Resource Exhaustion",
+    "severity": "Sev-1 (Critical)",
+    "description": "Resource Exhaustion incident on the Finance pipeline (RTL_FIN_RES): promotions rules-engine evaluation exhausts CPU on shared node.",
+    "symptoms": "The real-time-adjacent promotions rules-evaluation task, which re-evaluates all active promotion rules against the full active-cart dataset every 15 minutes, regularly saturates its node's CPU during high-traffic promotional events.",
+    "root_cause": "The rules engine evaluates all rules against all carts in a nested-loop pattern (O(rules x carts)) rather than an indexed/rule-triggered evaluation approach, and a major promotional event tripled both active cart count and active rule count simultaneously.",
+    "business_impact": "Promotion evaluation lag during a live flash-sale event caused some qualifying carts to not receive their discount before checkout completed, generating post-hoc customer service escalations and manual discount honoring.",
+    "resolution": "Refactor the rules engine to an indexed/triggered evaluation model (evaluate only rules relevant to a cart's contents) instead of full nested-loop evaluation; add horizontal scaling for this task during declared promotional events."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 58
+    },
+    "incident_id": "INC-055",
+    "expected_rca_summary": "AI AutoRCA should identify: The rules engine evaluates all rules against all carts in a nested-loop pattern (O(rules x carts)) rather than an indexed/rule-triggered evaluation approach, and a major promotional event tripled both active cart count and active rule count simultaneously.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow task duration metric shows non-linear (multiplicative) growth matching the CPU saturation pattern",
+    "datadog_metrics": "Datadog container.cpu.usage for the rules-evaluation task shows a clear correlation with the product of cart_count x active_rule_count, not either alone",
+    "confidence_score": 0.83,
+    "resolution": "Refactor the rules engine to an indexed/triggered evaluation model (evaluate only rules relevant to a cart's contents) instead of full nested-loop evaluation; add horizontal scaling for this task during declared promotional events.",
+    "preventive_action": "Add algorithmic-complexity review as a required design-gate in the architecture template for any task whose complexity scales multiplicatively with two independently-growing inputs."
+  }
+}

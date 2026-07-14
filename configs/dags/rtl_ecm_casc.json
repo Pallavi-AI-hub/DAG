@@ -1,0 +1,274 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "DAG Inventory",
+      "row_number": 33
+    },
+    "dag_id": "RTL_ECM_CASC",
+    "dag_name": "Inventory reconciliation delay cascades into Pricing repricing",
+    "business_domain": "Ecommerce",
+    "lrj_category": "Cascading Delay",
+    "schedule": "0 4 * * *",
+    "sla": "3h (from upstream completion)",
+    "priority": "P1",
+    "criticality": "Critical",
+    "source": "Shopify Plus API",
+    "destination": "Snowflake RAW.ECOMMERCE"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 388
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 389
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "sensor_upstream_a",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain A DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 390
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "sensor_upstream_b",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain B DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 391
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "sensor_upstream_c",
+      "task_type": "ExternalTaskSensor",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "fan_in_join"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Waits on upstream domain C DAG completion"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 392
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "fan_in_join",
+      "task_type": "EmptyOperator (fan-in)",
+      "upstream_tasks": [
+        "sensor_upstream_a",
+        "sensor_upstream_b",
+        "sensor_upstream_c"
+      ],
+      "downstream_tasks": [
+        "consolidate_ecm"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Requires all 3 upstream domains to have completed"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 393
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "consolidate_ecm",
+      "task_type": "PythonOperator/SQLOperator",
+      "upstream_tasks": [
+        "fan_in_join"
+      ],
+      "downstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Consolidates Ecommerce data across upstream domains"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 394
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "cascade_delay_check",
+      "task_type": "BranchPythonOperator",
+      "upstream_tasks": [
+        "consolidate_ecm"
+      ],
+      "downstream_tasks": [
+        "on_time",
+        "cascaded_delay"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Compares actual start time to expected upstream-completion time"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 395
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "on_time",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: no material cascade delay detected"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 396
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "cascaded_delay",
+      "task_type": "PythonOperator (AutoRCA cascade-RCA hook)",
+      "upstream_tasks": [
+        "cascade_delay_check"
+      ],
+      "downstream_tasks": [
+        "notify_cascade_alert"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Branch: cascade delay detected, triggers cross-DAG AutoRCA"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 397
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "notify_cascade_alert",
+      "task_type": "PythonOperator (Teams Adaptive Card)",
+      "upstream_tasks": [
+        "cascaded_delay"
+      ],
+      "downstream_tasks": [
+        "load_target"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Notifies stakeholders of cascade impact with root-cause chain"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 398
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "load_target",
+      "task_type": "SnowflakeOperator/MinIO writer",
+      "upstream_tasks": [
+        "on_time",
+        "notify_cascade_alert"
+      ],
+      "downstream_tasks": [
+        "join_final"
+      ],
+      "trigger_rule": "none_failed_min_one_success",
+      "dependencies": "Loads Ecommerce consolidated target"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 399
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "join_final",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "load_target"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Final join"
+    },
+    {
+      "source_row": {
+        "sheet": "DAG Structure",
+        "row_number": 400
+      },
+      "dag_id": "RTL_ECM_CASC",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "join_final"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion"
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Incident Catalogue",
+      "row_number": 33
+    },
+    "incident_id": "INC-030",
+    "dag_id": "RTL_ECM_CASC",
+    "incident_name": "Inventory reconciliation delay cascades into Pricing repricing",
+    "category": "Cascading Delay",
+    "severity": "Sev-1 (Critical)",
+    "description": "Cascading Delay incident on the Ecommerce pipeline (RTL_ECM_CASC): inventory reconciliation delay cascades into Pricing repricing.",
+    "symptoms": "Pricing repricing DAG, dependent on same-day Inventory reconciliation via cross-DAG sensor, is delayed 2h20m.",
+    "root_cause": "Inventory reconciliation (Warehouse domain) ran long due to new dark-store volume, and Pricing's dependency is a hard blocking sensor rather than a partial/dataset-based trigger, so any upstream delay fully propagates.",
+    "business_impact": "Store and ecommerce prices remain un-refreshed into the morning, causing customer-facing price mismatches during the first hours of trading.",
+    "resolution": "Move to Airflow Datasets so Pricing can begin partial processing on partitions already reconciled, rather than waiting on the full upstream DAG."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Expected AI RCA",
+      "row_number": 33
+    },
+    "incident_id": "INC-030",
+    "expected_rca_summary": "AI AutoRCA should identify: Inventory reconciliation (Warehouse domain) ran long due to new dark-store volume, and Pricing's dependency is a hard blocking sensor rather than a partial/dataset-based trigger, so any upstream delay fully propagates.",
+    "evidence_required": "Airflow task logs, Datadog infrastructure/application metrics, cross-DAG lineage/dependency graph, JIRA/Confluence RAG context for known-issue matching",
+    "airflow_logs": "Airflow shows Pricing DAG's sensor task waited 2h20m beyond its historical p95 wait time",
+    "datadog_metrics": "Datadog cross-DAG lineage view (via Airflow lineage backend) shows the delay chain visually",
+    "confidence_score": 0.85,
+    "resolution": "Move to Airflow Datasets so Pricing can begin partial processing on partitions already reconciled, rather than waiting on the full upstream DAG.",
+    "preventive_action": "Add cascade-risk scoring to the metadata model based on historical upstream-DAG duration variance, surfaced on a cross-domain dependency dashboard."
+  }
+}
