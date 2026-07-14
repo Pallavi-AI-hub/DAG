@@ -1,0 +1,21 @@
+@"
+dags:
+  persistence:
+    enabled: false
+  mountPath: /opt/airflow/dags/repo
+  gitSync:
+    enabled: true
+    repo: https://github.com/Pallavi-AI-hub/DAG.git
+    branch: main
+    ref: main
+    rev: HEAD
+    subPath: ""
+    depth: 1
+    period: 30s
+
+extraEnv:
+  - name: AIRFLOW__CORE__DAGS_FOLDER
+    value: /opt/airflow/dags/repo/dags
+  - name: PYTHONPATH
+    value: /opt/airflow/dags/repo/src
+"@ | Set-Content airflow-values-dag-gitsync.yaml
