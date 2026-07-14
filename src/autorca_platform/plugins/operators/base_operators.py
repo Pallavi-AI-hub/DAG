@@ -230,16 +230,16 @@ class SensorBuilder:
 
 
 class SnowflakeOperatorBuilder:
-    """Builder for SnowflakeOperator / SQL tasks."""
+    """Builder for Snowflake/Postgres/common SQL tasks."""
 
     def build(self, metadata: TaskRow) -> Any:
-        """Build a mock Snowflake SQL operator.
+        """Build a SQL operator from task metadata.
 
         Args:
             metadata: Task configuration metadata.
 
         Returns:
-            SnowflakeOperator instance.
+            SQL operator instance.
         """
 
         try:
@@ -265,7 +265,11 @@ class SnowflakeOperatorBuilder:
             kwargs = {
                 "task_id": metadata.task_name,
                 "python_callable": autorca_noop_callable,
-                "op_kwargs": {"task_name": metadata.task_name, "dag_id": metadata.dag_id},
+                "op_kwargs": {
+                    "task_name": metadata.task_name,
+                    "dag_id": metadata.dag_id,
+                    "operator_config": metadata.operator_config,
+                },
                 "trigger_rule": metadata.trigger_rule,
             }
             if metadata.parallel_group:
@@ -273,10 +277,18 @@ class SnowflakeOperatorBuilder:
 
             return PythonOperator(**kwargs)
 
+        conn_id = str(metadata.operator_config.get("conn_id", "snowflake_default"))
+        sql = str(
+            metadata.operator_config.get(
+                "sql",
+                f"SELECT 1 AS autorca_probe, '{metadata.dag_id}' AS dag_id, "
+                f"'{metadata.task_name}' AS task_name",
+            )
+        )
         kwargs = {
             "task_id": metadata.task_name,
-            "sql": f"SELECT * FROM {metadata.task_name}",
-            "conn_id": "snowflake_default",
+            "sql": sql,
+            "conn_id": conn_id,
             "trigger_rule": metadata.trigger_rule,
         }
         if metadata.parallel_group:

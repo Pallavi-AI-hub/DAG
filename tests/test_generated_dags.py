@@ -18,7 +18,7 @@ def test_generated_dag_wrappers_match_manifest_and_import() -> None:
     wrapper_paths = sorted((REPO_ROOT / "dags").glob("*.py"))
     wrapper_ids = {path.stem for path in wrapper_paths}
 
-    assert manifest["dag_count"] == 56
+    assert manifest["dag_count"] == len(expected_dag_ids)
     assert wrapper_ids == expected_dag_ids
 
     for path in wrapper_paths:

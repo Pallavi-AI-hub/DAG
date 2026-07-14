@@ -70,6 +70,11 @@ class TaskRegistry:
             return "PythonOperator.expand"
         elif "pythonoperator" in task_type_lower:
             return "PythonOperator"
-        elif "snowflakeoperator" in task_type_lower:
+        elif (
+            "snowflakeoperator" in task_type_lower
+            or "postgresoperator" in task_type_lower
+            or "sqlexecutequeryoperator" in task_type_lower
+            or "sqloperator" in task_type_lower
+        ):
             return "SnowflakeOperator"
         return task_type

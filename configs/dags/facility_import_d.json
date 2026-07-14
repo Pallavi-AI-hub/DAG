@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "Manual Incident Intake",
+      "row_number": 1
+    },
+    "dag_id": "FACILITY_IMPORT_D",
+    "dag_name": "Facility import concurrent update RCA for PRB0054923",
+    "business_domain": "Facility, Vendor & Location",
+    "lrj_category": "DAG Failure - Concurrent Update",
+    "schedule": "@once",
+    "sla": "5m",
+    "priority": "P1",
+    "criticality": "High",
+    "source": "PostgreSQL PLIM_UTILS.EXECUTION_LOG",
+    "destination": "AI AutoRCA incident evidence store"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "Manual Incident Intake",
+        "row_number": 10
+      },
+      "dag_id": "FACILITY_IMPORT_D",
+      "task_name": "start",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "query_execution_log"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "DAG entry point for PRB0054923 / INC6594187 RCA replay."
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Incident Intake",
+        "row_number": 11
+      },
+      "dag_id": "FACILITY_IMPORT_D",
+      "task_name": "query_execution_log",
+      "task_type": "PostgresOperator",
+      "upstream_tasks": [
+        "start"
+      ],
+      "downstream_tasks": [
+        "detect_concurrent_update_conflict"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Fetch execution-log rows for FACILITY-IMPORT-D / TASK-PLIM-FACILITY-IMPORT-E around the failed 2026-07-03 PST run window.",
+      "operator_config": {
+        "conn_id": "postgres_default",
+        "sql": "SELECT interface_name, task_name, status, start_ts, end_ts, error_message\nFROM PLIM_UTILS.EXECUTION_LOG\nWHERE interface_name = 'FACILITY-IMPORT-D'\n  AND task_name = 'TASK-PLIM-FACILITY-IMPORT-E'\n  AND start_ts >= TIMESTAMP '2026-07-03 03:00:00'\n  AND start_ts < TIMESTAMP '2026-07-03 03:05:00'\nORDER BY start_ts DESC;"
+      }
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Incident Intake",
+        "row_number": 12
+      },
+      "dag_id": "FACILITY_IMPORT_D",
+      "task_name": "detect_concurrent_update_conflict",
+      "task_type": "PostgresOperator",
+      "upstream_tasks": [
+        "query_execution_log"
+      ],
+      "downstream_tasks": [
+        "write_rca_summary"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Check for tuple-concurrently-updated / row-lock conflict signatures in execution log evidence.",
+      "operator_config": {
+        "conn_id": "postgres_default",
+        "sql": "SELECT COUNT(*) AS concurrent_update_conflict_count\nFROM PLIM_UTILS.EXECUTION_LOG\nWHERE interface_name = 'FACILITY-IMPORT-D'\n  AND task_name = 'TASK-PLIM-FACILITY-IMPORT-E'\n  AND start_ts >= TIMESTAMP '2026-07-03 03:00:00'\n  AND start_ts < TIMESTAMP '2026-07-03 03:05:00'\n  AND (\n    LOWER(COALESCE(error_message, '')) LIKE '%tuple concurrently updated%'\n    OR LOWER(COALESCE(error_message, '')) LIKE '%concurrent update%'\n    OR LOWER(COALESCE(error_message, '')) LIKE '%could not serialize%'\n  );"
+      }
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Incident Intake",
+        "row_number": 13
+      },
+      "dag_id": "FACILITY_IMPORT_D",
+      "task_name": "write_rca_summary",
+      "task_type": "PythonOperator (AutoRCA callback)",
+      "upstream_tasks": [
+        "detect_concurrent_update_conflict"
+      ],
+      "downstream_tasks": [
+        "notify_rca_summary"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Persist RCA narrative: PostgreSQL row-level concurrent update conflict on PLIM_UTILS.EXECUTION_LOG caused transaction abort."
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Incident Intake",
+        "row_number": 14
+      },
+      "dag_id": "FACILITY_IMPORT_D",
+      "task_name": "notify_rca_summary",
+      "task_type": "PythonOperator (Teams Adaptive Card + RCA summary)",
+      "upstream_tasks": [
+        "write_rca_summary"
+      ],
+      "downstream_tasks": [
+        "end"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Notify facility/vendor/location stakeholders of PRB0054923 findings and preventive actions."
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Incident Intake",
+        "row_number": 15
+      },
+      "dag_id": "FACILITY_IMPORT_D",
+      "task_name": "end",
+      "task_type": "EmptyOperator",
+      "upstream_tasks": [
+        "notify_rca_summary"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_done",
+      "dependencies": "DAG completion."
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Manual Incident Intake",
+      "row_number": 2
+    },
+    "incident_id": "INC6594187",
+    "dag_id": "FACILITY_IMPORT_D",
+    "incident_name": "DAG failures due to concurrent updates on the same row",
+    "category": "PostgreSQL Concurrent Update Conflict",
+    "severity": "PROD PRB0054923",
+    "description": "FACILITY-IMPORT-D failed on 2026-07-03 when TASK-PLIM-FACILITY-IMPORT-E aborted after a PostgreSQL tuple-concurrently-updated conflict.",
+    "symptoms": "PythonOperator task failed on try 1 after 22.289021 seconds; log indicated Tuple concurrently updated while acquiring a pessimistic lock on PLIM_UTILS.EXECUTION_LOG.",
+    "root_cause": "The batch framework allows multiple processes or retries to access and update the same PLIM_UTILS.EXECUTION_LOG record simultaneously, creating a race condition during lock acquisition.",
+    "business_impact": "Facility, Vendor & Location import pipeline failure required incident investigation and delayed normal batch processing until the next DAG run completed.",
+    "resolution": "Next DAG run completed; investigate overlapping schedulers/retries, serialize execution log updates, and add retry handling for row-level concurrent update conflicts."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Manual Incident Intake",
+      "row_number": 3
+    },
+    "incident_id": "INC6594187",
+    "expected_rca_summary": "AI AutoRCA should identify PostgreSQL row-level concurrency conflict (Tuple concurrently updated) on PLIM_UTILS.EXECUTION_LOG for FACILITY-IMPORT-D / TASK-PLIM-FACILITY-IMPORT-E as the immediate failure cause.",
+    "evidence_required": "Airflow task log, PostgreSQL execution log records, Splunk log search for Tuple concurrently updated, scheduler overlap history, retry timeline.",
+    "airflow_logs": "Task TASK-PLIM-FACILITY-IMPORT-E failed on try 1 from 2026-07-03 03:01:37 AM PST to 03:02:00 AM PST with PythonOperator failure.",
+    "datadog_metrics": "Optional: scheduler concurrency, task overlap, database lock/wait metrics, and PostgreSQL transaction abort counts around the run window.",
+    "confidence_score": 0.95,
+    "resolution": "Ensure only one scheduler instance triggers the interface at a time; strengthen pessimistic-lock retry handling; serialize EXECUTION_LOG updates for the same interface.",
+    "preventive_action": "Add monitor for overlapping FACILITY-IMPORT-D executions and PostgreSQL tuple-concurrently-updated signatures; enforce unique active execution-log ownership per interface run."
+  }
+}

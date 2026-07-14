@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "dag_count": 56,
+  "dag_count": 57,
   "dag_ids": [
     "RTL_PRD_ELRJ",
     "RTL_INV_ELRJ",
@@ -57,7 +57,8 @@
     "RTL_LOG_RES",
     "RTL_FCT_RES",
     "RTL_FIN_RES",
-    "RTL_MKT_RES"
+    "RTL_MKT_RES",
+    "FACILITY_IMPORT_D"
   ],
   "global_config": "configs/global_config.json",
   "dag_config_dir": "configs/dags"

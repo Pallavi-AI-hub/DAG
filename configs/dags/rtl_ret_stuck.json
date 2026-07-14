@@ -150,7 +150,11 @@
         "load_target"
       ],
       "trigger_rule": "all_success",
-      "dependencies": "Main transform once signal received"
+      "dependencies": "Main transform once signal received",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_RET_STUCK' AS dag_id, 'heavy_transform' AS task_name;"
+      }
     },
     {
       "source_row": {
@@ -167,7 +171,11 @@
         "join_final"
       ],
       "trigger_rule": "all_success",
-      "dependencies": "Loads Returns target"
+      "dependencies": "Loads Returns target",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_RET_STUCK' AS dag_id, 'load_target' AS task_name;"
+      }
     },
     {
       "source_row": {

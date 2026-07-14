@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -61,6 +62,7 @@ class TaskRow(StrictModel):
     parallel_group: str | None = None
     trigger_rule: str
     dependencies: str | None = None
+    operator_config: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("dag_id", "task_name", "task_type", "trigger_rule", mode="before")
     @classmethod

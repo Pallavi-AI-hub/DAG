@@ -119,7 +119,11 @@
         "cascade_delay_check"
       ],
       "trigger_rule": "all_success",
-      "dependencies": "Consolidates Inventory data across upstream domains"
+      "dependencies": "Consolidates Inventory data across upstream domains",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_INV_CASC' AS dag_id, 'consolidate_inv' AS task_name;"
+      }
     },
     {
       "source_row": {
@@ -206,7 +210,11 @@
         "join_final"
       ],
       "trigger_rule": "none_failed_min_one_success",
-      "dependencies": "Loads Inventory consolidated target"
+      "dependencies": "Loads Inventory consolidated target",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_INV_CASC' AS dag_id, 'load_target' AS task_name;"
+      }
     },
     {
       "source_row": {

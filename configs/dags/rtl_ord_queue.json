@@ -117,7 +117,11 @@
         "datadog_queue_depth_check"
       ],
       "trigger_rule": "all_success",
-      "dependencies": "Loads Orders target"
+      "dependencies": "Loads Orders target",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_ORD_QUEUE' AS dag_id, 'load_target' AS task_name;"
+      }
     },
     {
       "source_row": {

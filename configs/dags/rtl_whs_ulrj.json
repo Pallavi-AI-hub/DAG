@@ -229,7 +229,11 @@
         "ai_autorca_duration_check"
       ],
       "trigger_rule": "all_success",
-      "dependencies": "Loads Warehouse RAW/staging table"
+      "dependencies": "Loads Warehouse RAW/staging table",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_WHS_ULRJ' AS dag_id, 'load_snowflake_whs' AS task_name;"
+      }
     },
     {
       "source_row": {

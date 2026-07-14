@@ -192,7 +192,11 @@
         "sla_buffer_check"
       ],
       "trigger_rule": "all_success",
-      "dependencies": "Loads Product Master RAW/staging table"
+      "dependencies": "Loads Product Master RAW/staging table",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_PRD_ELRJ' AS dag_id, 'load_snowflake_prd' AS task_name;"
+      }
     },
     {
       "source_row": {

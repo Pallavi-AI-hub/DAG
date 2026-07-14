@@ -167,7 +167,11 @@
         "join_final"
       ],
       "trigger_rule": "all_success",
-      "dependencies": "Loads Customers target"
+      "dependencies": "Loads Customers target",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_CUS_RES' AS dag_id, 'load_target' AS task_name;"
+      }
     },
     {
       "source_row": {

@@ -167,7 +167,11 @@
         "join_final"
       ],
       "trigger_rule": "all_success",
-      "dependencies": "Loads Forecasting target"
+      "dependencies": "Loads Forecasting target",
+      "operator_config": {
+        "conn_id": "snowflake_default",
+        "sql": "SELECT 1 AS autorca_probe, 'RTL_FCT_RES' AS dag_id, 'load_target' AS task_name;"
+      }
     },
     {
       "source_row": {
