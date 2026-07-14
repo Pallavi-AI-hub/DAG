@@ -14,6 +14,6 @@ dags:
 
 env:
   - name: AIRFLOW__CORE__DAGS_FOLDER
-    value: /opt/airflow/dags/repo/dags
+    value: /opt/airflow/dags/repo/repo/dags
   - name: PYTHONPATH
-    value: /opt/airflow/dags/repo/src
+    value: /opt/airflow/dags/repo/repo/src
