@@ -11,7 +11,7 @@ from autorca_platform.metadata.models import TaskRow
 logger = logging.getLogger("autorca_platform.plugins.operators.product_catalog")
 
 PLIM_POSTGRES_CONN_ID = "plim_postgres"
-PRODUCT_CATALOG_TABLE = "product_catalog"
+PRODUCT_CATALOG_TABLE = "plim_demo.product_catalog"
 PRODUCT_ID = 500000
 
 
