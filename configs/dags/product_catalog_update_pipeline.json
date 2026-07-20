@@ -213,7 +213,7 @@
       "downstream_tasks": [
         "publish_incident"
       ],
-      "trigger_rule": "all_success",
+      "trigger_rule": "all_done",
       "dependencies": "Metadata-driven product catalog step: collect_lock_evidence",
       "operator_config": {
         "incident_id": "PLIM-17222",
@@ -251,7 +251,7 @@
         "collect_lock_evidence"
       ],
       "downstream_tasks": [],
-      "trigger_rule": "all_success",
+      "trigger_rule": "all_done",
       "dependencies": "Metadata-driven product catalog step: publish_incident",
       "operator_config": {
         "incident_id": "PLIM-17222",
