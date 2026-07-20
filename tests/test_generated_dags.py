@@ -14,7 +14,8 @@ def test_generated_dag_wrappers_match_manifest_and_import() -> None:
     """Every manifest DAG should have one importable generated wrapper."""
 
     manifest = json.loads((REPO_ROOT / "configs" / "manifest.json").read_text(encoding="utf-8"))
-    expected_dag_ids = {dag_id.lower() for dag_id in manifest["dag_ids"]}
+    expected_dag_id_by_file = {dag_id.lower(): dag_id for dag_id in manifest["dag_ids"]}
+    expected_dag_ids = set(expected_dag_id_by_file)
     wrapper_paths = sorted((REPO_ROOT / "dags").glob("*.py"))
     wrapper_ids = {path.stem for path in wrapper_paths}
 
@@ -30,4 +31,4 @@ def test_generated_dag_wrappers_match_manifest_and_import() -> None:
         spec.loader.exec_module(module)
 
         assert hasattr(module, "dag")
-        assert module.dag.dag_id == path.stem.upper()
+        assert module.dag.dag_id == expected_dag_id_by_file[path.stem]

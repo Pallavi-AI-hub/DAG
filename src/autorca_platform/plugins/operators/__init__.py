@@ -10,6 +10,7 @@ from autorca_platform.plugins.operators.base_operators import (
     SensorBuilder,
     SnowflakeOperatorBuilder,
 )
+from autorca_platform.plugins.operators.product_catalog import ProductCatalogTaskBuilder
 
 empty_builder = EmptyOperatorBuilder()
 python_builder = PythonOperatorBuilder()
@@ -18,6 +19,15 @@ sensor_ext_builder = ExternalTaskSensorBuilder()
 sensor_generic_builder = SensorBuilder()
 snowflake_builder = SnowflakeOperatorBuilder()
 mapped_builder = MappedPythonOperatorBuilder()
+product_catalog_builders = {
+    "initialize_incident": ProductCatalogTaskBuilder("initialize_incident"),
+    "validate_product": ProductCatalogTaskBuilder("validate_product"),
+    "prepare_state": ProductCatalogTaskBuilder("prepare_state"),
+    "writer_a_holds_lock": ProductCatalogTaskBuilder("writer_a_holds_lock"),
+    "writer_b_lock_timeout": ProductCatalogTaskBuilder("writer_b_lock_timeout"),
+    "collect_lock_evidence": ProductCatalogTaskBuilder("collect_lock_evidence"),
+    "publish_incident": ProductCatalogTaskBuilder("publish_incident"),
+}
 
 TASK_TYPE_MAPPING = {
     "EmptyOperator": empty_builder,
@@ -65,6 +75,7 @@ TASK_TYPE_MAPPING = {
     "PythonOperator (state checkpoint)": python_builder,
     "PythonOperator/SQLOperator": python_builder,
     "PythonOperator/SQLOperator (heavy compute)": python_builder,
+    **product_catalog_builders,
 }
 
 

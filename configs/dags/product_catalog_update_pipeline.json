@@ -1,0 +1,307 @@
+{
+  "schema_version": "1.0.0",
+  "dag": {
+    "source_row": {
+      "sheet": "Manual Metadata",
+      "row_number": 1
+    },
+    "dag_id": "product_catalog_update_pipeline",
+    "dag_name": "Product Catalog Update Pipeline",
+    "business_domain": "Product Catalog",
+    "lrj_category": "Concurrent Database Update",
+    "schedule": "@once",
+    "sla": "10m",
+    "priority": "P1",
+    "criticality": "High",
+    "source": "Product catalog metadata feed",
+    "destination": "Product catalog incident publication"
+  },
+  "tasks": [
+    {
+      "source_row": {
+        "sheet": "Manual Metadata",
+        "row_number": 10
+      },
+      "dag_id": "product_catalog_update_pipeline",
+      "task_name": "initialize_incident",
+      "task_type": "initialize_incident",
+      "upstream_tasks": [],
+      "downstream_tasks": [
+        "validate_product"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Metadata-driven product catalog step: initialize_incident",
+      "operator_config": {
+        "incident_id": "PLIM-17222",
+        "pipeline_name": "product_catalog_update_pipeline",
+        "product_id": "${metadata.product_id}",
+        "lock_key": "${metadata.product_catalog_row_key}",
+        "source_system": "product_catalog_service",
+        "conflict_type": "concurrent_database_update",
+        "step_name": "initialize_incident",
+        "simulated_outcome": "success",
+        "metadata_parameters": {
+          "incident_id": "PLIM-17222",
+          "pipeline_name": "product_catalog_update_pipeline",
+          "product_id_param": "product_id",
+          "row_lock_param": "product_catalog_row_key"
+        },
+        "evidence": {
+          "description": "Initialize incident context from metadata, not from DAG code."
+        }
+      }
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Metadata",
+        "row_number": 11
+      },
+      "dag_id": "product_catalog_update_pipeline",
+      "task_name": "validate_product",
+      "task_type": "validate_product",
+      "upstream_tasks": [
+        "initialize_incident"
+      ],
+      "downstream_tasks": [
+        "prepare_state"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Metadata-driven product catalog step: validate_product",
+      "operator_config": {
+        "incident_id": "PLIM-17222",
+        "pipeline_name": "product_catalog_update_pipeline",
+        "product_id": "${metadata.product_id}",
+        "lock_key": "${metadata.product_catalog_row_key}",
+        "source_system": "product_catalog_service",
+        "conflict_type": "concurrent_database_update",
+        "step_name": "validate_product",
+        "simulated_outcome": "success",
+        "metadata_parameters": {
+          "incident_id": "PLIM-17222",
+          "pipeline_name": "product_catalog_update_pipeline",
+          "product_id_param": "product_id",
+          "row_lock_param": "product_catalog_row_key"
+        },
+        "evidence": {
+          "validation_rule": "product update payload must contain product identifier and target row key"
+        }
+      }
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Metadata",
+        "row_number": 12
+      },
+      "dag_id": "product_catalog_update_pipeline",
+      "task_name": "prepare_state",
+      "task_type": "prepare_state",
+      "upstream_tasks": [
+        "validate_product"
+      ],
+      "downstream_tasks": [
+        "writer_a_holds_lock",
+        "writer_b_lock_timeout"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Metadata-driven product catalog step: prepare_state",
+      "operator_config": {
+        "incident_id": "PLIM-17222",
+        "pipeline_name": "product_catalog_update_pipeline",
+        "product_id": "${metadata.product_id}",
+        "lock_key": "${metadata.product_catalog_row_key}",
+        "source_system": "product_catalog_service",
+        "conflict_type": "concurrent_database_update",
+        "step_name": "prepare_state",
+        "simulated_outcome": "success",
+        "metadata_parameters": {
+          "incident_id": "PLIM-17222",
+          "pipeline_name": "product_catalog_update_pipeline",
+          "product_id_param": "product_id",
+          "row_lock_param": "product_catalog_row_key"
+        },
+        "evidence": {
+          "state_action": "prepare concurrent writer simulation state from metadata parameters"
+        }
+      }
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Metadata",
+        "row_number": 13
+      },
+      "dag_id": "product_catalog_update_pipeline",
+      "task_name": "writer_a_holds_lock",
+      "task_type": "writer_a_holds_lock",
+      "upstream_tasks": [
+        "prepare_state"
+      ],
+      "downstream_tasks": [
+        "collect_lock_evidence"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Metadata-driven product catalog step: writer_a_holds_lock",
+      "operator_config": {
+        "incident_id": "PLIM-17222",
+        "pipeline_name": "product_catalog_update_pipeline",
+        "product_id": "${metadata.product_id}",
+        "lock_key": "${metadata.product_catalog_row_key}",
+        "source_system": "product_catalog_service",
+        "conflict_type": "concurrent_database_update",
+        "step_name": "writer_a_holds_lock",
+        "simulated_outcome": "lock_held",
+        "metadata_parameters": {
+          "incident_id": "PLIM-17222",
+          "pipeline_name": "product_catalog_update_pipeline",
+          "product_id_param": "product_id",
+          "row_lock_param": "product_catalog_row_key"
+        },
+        "evidence": {
+          "writer_role": "writer_a",
+          "lock_behavior": "holds row lock for product catalog update simulation"
+        }
+      }
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Metadata",
+        "row_number": 14
+      },
+      "dag_id": "product_catalog_update_pipeline",
+      "task_name": "writer_b_lock_timeout",
+      "task_type": "writer_b_lock_timeout",
+      "upstream_tasks": [
+        "prepare_state"
+      ],
+      "downstream_tasks": [
+        "collect_lock_evidence"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Metadata-driven product catalog step: writer_b_lock_timeout",
+      "operator_config": {
+        "incident_id": "PLIM-17222",
+        "pipeline_name": "product_catalog_update_pipeline",
+        "product_id": "${metadata.product_id}",
+        "lock_key": "${metadata.product_catalog_row_key}",
+        "source_system": "product_catalog_service",
+        "conflict_type": "concurrent_database_update",
+        "step_name": "writer_b_lock_timeout",
+        "simulated_outcome": "lock_timeout",
+        "metadata_parameters": {
+          "incident_id": "PLIM-17222",
+          "pipeline_name": "product_catalog_update_pipeline",
+          "product_id_param": "product_id",
+          "row_lock_param": "product_catalog_row_key"
+        },
+        "evidence": {
+          "writer_role": "writer_b",
+          "observed_error": "concurrent update timeout while writer_a holds the same product catalog row lock"
+        }
+      }
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Metadata",
+        "row_number": 15
+      },
+      "dag_id": "product_catalog_update_pipeline",
+      "task_name": "collect_lock_evidence",
+      "task_type": "collect_lock_evidence",
+      "upstream_tasks": [
+        "writer_a_holds_lock",
+        "writer_b_lock_timeout"
+      ],
+      "downstream_tasks": [
+        "publish_incident"
+      ],
+      "trigger_rule": "all_success",
+      "dependencies": "Metadata-driven product catalog step: collect_lock_evidence",
+      "operator_config": {
+        "incident_id": "PLIM-17222",
+        "pipeline_name": "product_catalog_update_pipeline",
+        "product_id": "${metadata.product_id}",
+        "lock_key": "${metadata.product_catalog_row_key}",
+        "source_system": "product_catalog_service",
+        "conflict_type": "concurrent_database_update",
+        "step_name": "collect_lock_evidence",
+        "simulated_outcome": "success",
+        "metadata_parameters": {
+          "incident_id": "PLIM-17222",
+          "pipeline_name": "product_catalog_update_pipeline",
+          "product_id_param": "product_id",
+          "row_lock_param": "product_catalog_row_key"
+        },
+        "evidence": {
+          "evidence_sources": [
+            "task metadata",
+            "simulated writer outcomes",
+            "incident metadata"
+          ]
+        }
+      }
+    },
+    {
+      "source_row": {
+        "sheet": "Manual Metadata",
+        "row_number": 16
+      },
+      "dag_id": "product_catalog_update_pipeline",
+      "task_name": "publish_incident",
+      "task_type": "publish_incident",
+      "upstream_tasks": [
+        "collect_lock_evidence"
+      ],
+      "downstream_tasks": [],
+      "trigger_rule": "all_success",
+      "dependencies": "Metadata-driven product catalog step: publish_incident",
+      "operator_config": {
+        "incident_id": "PLIM-17222",
+        "pipeline_name": "product_catalog_update_pipeline",
+        "product_id": "${metadata.product_id}",
+        "lock_key": "${metadata.product_catalog_row_key}",
+        "source_system": "product_catalog_service",
+        "conflict_type": "concurrent_database_update",
+        "step_name": "publish_incident",
+        "simulated_outcome": "success",
+        "metadata_parameters": {
+          "incident_id": "PLIM-17222",
+          "pipeline_name": "product_catalog_update_pipeline",
+          "product_id_param": "product_id",
+          "row_lock_param": "product_catalog_row_key"
+        },
+        "evidence": {
+          "publish_target": "metadata-driven incident publication hook"
+        }
+      }
+    }
+  ],
+  "incident": {
+    "source_row": {
+      "sheet": "Manual Metadata",
+      "row_number": 2
+    },
+    "incident_id": "PLIM-17222",
+    "dag_id": "product_catalog_update_pipeline",
+    "incident_name": "Concurrent Database Update",
+    "category": "Concurrent Database Update",
+    "severity": "P1",
+    "description": "Product Catalog Update Pipeline simulates PLIM-17222 where concurrent writers target the same product catalog row.",
+    "symptoms": "writer_a_holds_lock proceeds while writer_b_lock_timeout records a lock-timeout outcome for the same metadata-provided row key.",
+    "root_cause": "Concurrent update contention on the same product catalog row when separate writers attempt overlapping updates.",
+    "business_impact": "Product catalog update publication is delayed until lock contention is detected and incident evidence is published.",
+    "resolution": "Serialize product catalog row updates by metadata row key and publish lock evidence for RCA triage."
+  },
+  "expected_rca": {
+    "source_row": {
+      "sheet": "Manual Metadata",
+      "row_number": 3
+    },
+    "incident_id": "PLIM-17222",
+    "expected_rca_summary": "AI AutoRCA should identify PLIM-17222 as concurrent database update contention between writer_a_holds_lock and writer_b_lock_timeout for the same metadata row key.",
+    "evidence_required": "Task metadata parameters, writer outcomes, product row key, lock behavior, and publish_incident output.",
+    "airflow_logs": "Airflow task logs should show prepare_state fan-out, writer_a lock-held outcome, writer_b lock-timeout outcome, and collect_lock_evidence fan-in.",
+    "datadog_metrics": "Optional lock-wait, task duration, and retry metrics if observability is configured later.",
+    "confidence_score": 0.9,
+    "resolution": "Use metadata row-key serialization and retry/backoff guardrails for concurrent product catalog updates.",
+    "preventive_action": "Add a product catalog row-key concurrency control rule before launching parallel writers."
+  }
+}
